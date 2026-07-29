@@ -140,12 +140,12 @@ export default function EksdiPadelLinktree() {
     const message = 
 `*NEW BOOKING REQUEST - EKSDI PADEL*
 ----------------------------------------
-👤 *Nama:* ${formData.name}
-📱 *No. HP:* ${formData.phone}
-📧 *Email:* ${formData.email || '-'}
+ *Nama:* ${formData.name}
+ *No. HP:* ${formData.phone}
+ *Email:* ${formData.email || '-'}
 
-📅 *Tanggal:* ${formattedDate}
-⏰ *Jam Main:* ${timeRange} (${duration} Jam)
+ *Tanggal:* ${formattedDate}
+ *Jam Main:* ${timeRange} (${duration} Jam)
 ----------------------------------------
 Mohon konfirmasi ketersediaan lapangan & detail pembayarannya. Terima kasih!`;
 
