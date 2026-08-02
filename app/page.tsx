@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import { 
   CalendarCheck, 
   Users, 
@@ -15,18 +16,44 @@ import {
   Mail,
   Phone,
   Calendar as CalendarIcon,
-  Send
+  Send,
+  Loader2
 } from 'lucide-react';
+
+interface Court {
+  id: string;
+  name: string;
+  price_per_hour: number;
+  is_active: boolean;
+}
+
+interface ExistingBooking {
+  court_id: string;
+  start_time: string;
+  end_time: string;
+}
 
 export default function EksdiPadelLinktree() {
   const adminWA = "6289630041079";
   
+  // Format YYYY-MM-DD Hari Ini untuk default & min date
+  const getTodayString = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
   // State Modal & Booking
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>('');
-  const [duration, setDuration] = useState<number>(1); // default 1 jam
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
+  const [duration, setDuration] = useState<number>(1);
   const [selectedTime, setSelectedTime] = useState<string>('');
-  
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Database Data State
+  const [activeCourts, setActiveCourts] = useState<Court[]>([]);
+  const [existingBookings, setExistingBookings] = useState<ExistingBooking[]>([]);
+
   // Form State
   const [formData, setFormData] = useState({
     name: '',
@@ -34,58 +61,111 @@ export default function EksdiPadelLinktree() {
     phone: '',
   });
 
-  // Generate 7 Hari ke Depan
-  const [availableDates, setAvailableDates] = useState<{ fullDate: string; displayDate: string; dayName: string; isToday: boolean }[]>([]);
-
+  // 1. Fetch Lapangan Aktif dari Supabase
   useEffect(() => {
-    const dates = [];
-    const today = new Date();
+    const fetchCourts = async () => {
+      const { data, error } = await supabase
+        .from('courts')
+        .select('*')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
 
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-
-      const dayName = d.toLocaleDateString('id-ID', { weekday: 'short' });
-      const displayDate = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-      const fullDate = d.toISOString().split('T')[0];
-
-      dates.push({
-        fullDate,
-        displayDate,
-        dayName,
-        isToday: i === 0,
-      });
-    }
-
-    setAvailableDates(dates);
-    if (dates.length > 0) {
-      setSelectedDate(dates[0].fullDate); // default pilih hari ini
-    }
+      if (!error && data) {
+        setActiveCourts(data as Court[]);
+      }
+    };
+    fetchCourts();
   }, []);
 
-  // Generate Slot Jam (06:00 - 21:00, interval 30 menit)
+  // 2. Fetch Booking yang Sudah Ada Berdasarkan Tanggal yang Dipilih
+  const fetchBookingsForDate = async (dateStr: string) => {
+    if (!dateStr) return;
+    setLoadingSlots(true);
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('court_id, start_time, end_time')
+      .eq('booking_date', dateStr);
+
+    if (!error && data) {
+      setExistingBookings(data as ExistingBooking[]);
+    } else {
+      setExistingBookings([]);
+    }
+    setLoadingSlots(false);
+  };
+
+  useEffect(() => {
+    if (selectedDate) {
+      fetchBookingsForDate(selectedDate);
+    }
+  }, [selectedDate]);
+
+  // Helper Mengubah String "HH:MM" ke Menit untuk Komparasi
+  const timeToMinutes = (timeStr: string) => {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  // 3. Helper Cek Ketersediaan Lapangan di Slot Waktu Tertentu
+  const getAvailableCourtForSlot = (startTimeStr: string, durationHours: number) => {
+    if (activeCourts.length === 0) return null;
+
+    const reqStart = timeToMinutes(startTimeStr);
+    const reqEnd = reqStart + durationHours * 60;
+
+    // Cari lapangan pertama yang TIDAK bentrok
+    for (const court of activeCourts) {
+      const isCourtBusy = existingBookings.some((b) => {
+        if (b.court_id !== court.id) return false;
+
+        const bStart = timeToMinutes(b.start_time);
+        const bEnd = timeToMinutes(b.end_time);
+
+        // Cek apakah ada irisan jam (Overlap)
+        return reqStart < bEnd && reqEnd > bStart;
+      });
+
+      if (!isCourtBusy) {
+        return court; // Kembalikan lapangan yang kosong ini!
+      }
+    }
+
+    return null; // Semua lapangan penuh
+  };
+
+  // 4. Generate Slot Jam (06:00 - 21:00) + Filter Back Time & Fully Booked
   const generateTimeSlots = () => {
     const slots = [];
     const startHour = 6;
-    const endHour = 21; // Tutup jam 21:00
+    const endHour = 21;
 
     const now = new Date();
+    const isToday = selectedDate === getTodayString();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
 
     for (let h = startHour; h < endHour; h++) {
       for (let m of [0, 30]) {
-        // Cek jika total waktu + durasi melebihi jam 21:00
         const endCalculatedHour = h + duration + (m === 30 ? 0.5 : 0);
-        if (endCalculatedHour > endHour) continue;
+        if (endCalculatedHour > endHour) continue; // Melebihi jam tutup
 
         const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         
-        // Cek apakah slot sudah lewat jika tanggal yang dipilih adalah hari ini
         let isPassed = false;
-        if (selectedDate === availableDates[0]?.fullDate) {
+
+        // A. Cek Jam Lewat (Khusus untuk Hari Ini)
+        if (isToday) {
           if (h < currentHour || (h === currentHour && m <= currentMinute)) {
             isPassed = true;
+          }
+        }
+
+        // B. Cek Apakah SEMUA Lapangan Penuh di Slot Jam Ini
+        if (!isPassed) {
+          const availableCourt = getAvailableCourtForSlot(timeString, duration);
+          if (!availableCourt) {
+            isPassed = true; // Penuh jika semua lapangan terisi
           }
         }
 
@@ -98,22 +178,20 @@ export default function EksdiPadelLinktree() {
     return slots;
   };
 
-  // Helper Menghitung Rentang Jam (misal 08:30 -> 08:30 - 10:30)
+  // Helper Rentang Jam (contoh: 08:30 -> 08:30 - 10:30)
   const calculateTimeRange = (startTime: string, durationHours: number) => {
-    if (!startTime) return '';
+    if (!startTime) return { display: '', endTimeStr: '' };
     const [h, m] = startTime.split(':').map(Number);
-    const endH = h + Math.floor(durationHours);
-    const endM = m + (durationHours % 1 !== 0 ? 30 : 0);
     
-    let finalEndH = endH;
-    let finalEndM = endM;
-    if (finalEndM >= 60) {
-      finalEndH += 1;
-      finalEndM -= 60;
-    }
+    const totalEndMinutes = h * 60 + m + durationHours * 60;
+    const endH = Math.floor(totalEndMinutes / 60);
+    const endM = totalEndMinutes % 60;
 
-    const formattedEnd = `${String(finalEndH).padStart(2, '0')}:${String(finalEndM).padStart(2, '0')}`;
-    return `${startTime} - ${formattedEnd}`;
+    const formattedEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+    return {
+      display: `${startTime} - ${formattedEnd}`,
+      endTimeStr: `${formattedEnd}:00`,
+    };
   };
 
   // Reset Pilihan Jam saat Tanggal / Durasi Berubah
@@ -121,15 +199,53 @@ export default function EksdiPadelLinktree() {
     setSelectedTime('');
   }, [selectedDate, duration]);
 
-  // Submit ke WhatsApp
-  const handleSubmit = (e: React.FormEvent) => {
+  // 5. Submit Booking (Insert DB + WA Redirect)
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDate || !selectedTime || !formData.name || !formData.phone) {
       alert('Mohon lengkapi semua data booking!');
       return;
     }
 
-    const timeRange = calculateTimeRange(selectedTime, duration);
+    setSubmitting(true);
+
+    // Cari Lapangan Kosong Otomatis
+    const assignedCourt = getAvailableCourtForSlot(selectedTime, duration);
+
+    if (!assignedCourt) {
+      alert('Maaf, semua lapangan sudah penuh di jam tersebut. Silakan pilih jam lain.');
+      setSubmitting(false);
+      return;
+    }
+
+    const { display: timeRange, endTimeStr } = calculateTimeRange(selectedTime, duration);
+    const formattedStartTime = `${selectedTime}:00`;
+    const totalPrice = assignedCourt.price_per_hour * duration;
+
+    // 🅰️ Insert ke Database Supabase
+    const { error } = await supabase.from('bookings').insert([
+      {
+        court_id: assignedCourt.id,
+        customer_name: formData.name,
+        customer_phone: formData.phone,
+        customer_email: formData.email || null,
+        booking_date: selectedDate,
+        start_time: formattedStartTime,
+        duration: duration,
+        end_time: endTimeStr,
+        total_price: totalPrice,
+        payment_status: 'pending',
+        payment_method: 'cashier',
+      },
+    ]);
+
+    if (error) {
+      alert('Gagal menyimpan booking ke database: ' + error.message);
+      setSubmitting(false);
+      return;
+    }
+
+    // 🅱️ Format Pesan WhatsApp
     const formattedDate = new Date(selectedDate).toLocaleDateString('id-ID', {
       weekday: 'long',
       day: 'numeric',
@@ -140,18 +256,22 @@ export default function EksdiPadelLinktree() {
     const message = 
 `*NEW BOOKING REQUEST - EKSDI PADEL*
 ----------------------------------------
- *Nama:* ${formData.name}
- *No. HP:* ${formData.phone}
- *Email:* ${formData.email || '-'}
+👤 *Nama:* ${formData.name}
+📱 *No. HP:* ${formData.phone}
+📧 *Email:* ${formData.email || '-'}
 
- *Tanggal:* ${formattedDate}
- *Jam Main:* ${timeRange} (${duration} Jam)
+📅 *Tanggal:* ${formattedDate}
+⏰ *Jam Main:* ${timeRange} (${duration} Jam)
+🎾 *Lapangan:* ${assignedCourt.name}
 ----------------------------------------
-Mohon konfirmasi ketersediaan lapangan & detail pembayarannya. Terima kasih!`;
+Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via transfer. Terima kasih!`;
 
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/${adminWA}?text=${encodedMessage}`, '_blank');
+
+    setSubmitting(false);
     setIsModalOpen(false);
+    fetchBookingsForDate(selectedDate); // Refresh ketersediaan slot
   };
 
   const links = [
@@ -289,7 +409,7 @@ Mohon konfirmasi ketersediaan lapangan & detail pembayarannya. Terima kasih!`;
           <p>
             Digital Solution powered by{' '}
             <a href={`https://wa.me/${adminWA}`} target="_blank" rel="noreferrer" className="text-[#ccff00] font-semibold hover:underline">
-              NamaKamu Studio
+              Lauzit Code
             </a>
           </p>
         </footer>
@@ -322,28 +442,19 @@ Mohon konfirmasi ketersediaan lapangan & detail pembayarannya. Terima kasih!`;
 
             <form onSubmit={handleSubmit} className="space-y-5">
               
-              {/* 1. Pilih Tanggal (7 Hari) */}
+              {/* 1. Pilih Tanggal (Date Picker - Mencegah Back Date) */}
               <div>
                 <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5 mb-2">
-                  <CalendarIcon className="w-3.5 h-3.5 text-[#ccff00]" /> 1. Pilih Tanggal
+                  <CalendarIcon className="w-3.5 h-3.5 text-[#ccff00]" /> 1. Pilih Tanggal Main
                 </label>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-                  {availableDates.map((d) => (
-                    <button
-                      key={d.fullDate}
-                      type="button"
-                      onClick={() => setSelectedDate(d.fullDate)}
-                      className={`flex-1 min-w-[70px] p-2.5 rounded-xl border text-center transition-all ${
-                        selectedDate === d.fullDate
-                          ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-bold'
-                          : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/30'
-                      }`}
-                    >
-                      <span className="block text-[10px] uppercase opacity-80">{d.isToday ? 'Hari Ini' : d.dayName}</span>
-                      <span className="block text-xs font-bold mt-0.5">{d.displayDate}</span>
-                    </button>
-                  ))}
-                </div>
+                <input
+                  type="date"
+                  required
+                  min={getTodayString()} // Mencegah Back Date!
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#ccff00]"
+                />
               </div>
 
               {/* 2. Pilih Durasi Main */}
@@ -377,29 +488,37 @@ Mohon konfirmasi ketersediaan lapangan & detail pembayarannya. Terima kasih!`;
                   </span>
                   {selectedTime && (
                     <span className="text-[11px] text-[#ccff00] font-bold bg-[#ccff00]/10 px-2 py-0.5 rounded-md border border-[#ccff00]/30">
-                      Waktu: {calculateTimeRange(selectedTime, duration)}
+                      Waktu: {calculateTimeRange(selectedTime, duration).display}
                     </span>
                   )}
                 </label>
-                <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1">
-                  {generateTimeSlots().map((slot) => (
-                    <button
-                      key={slot.time}
-                      type="button"
-                      disabled={slot.isPassed}
-                      onClick={() => setSelectedTime(slot.time)}
-                      className={`p-2 rounded-lg border text-xs font-medium transition-all ${
-                        slot.isPassed
-                          ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed'
-                          : selectedTime === slot.time
-                          ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-bold shadow-[0_0_10px_rgba(204,255,0,0.3)]'
-                          : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
-                      }`}
-                    >
-                      {slot.time}
-                    </button>
-                  ))}
-                </div>
+
+                {loadingSlots ? (
+                  <div className="text-center py-6 text-xs text-zinc-400 flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#ccff00]" />
+                    <span>Mengecek Ketersediaan Slot...</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1">
+                    {generateTimeSlots().map((slot) => (
+                      <button
+                        key={slot.time}
+                        type="button"
+                        disabled={slot.isPassed}
+                        onClick={() => setSelectedTime(slot.time)}
+                        className={`p-2 rounded-lg border text-xs font-medium transition-all ${
+                          slot.isPassed
+                            ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed'
+                            : selectedTime === slot.time
+                            ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-bold shadow-[0_0_10px_rgba(204,255,0,0.3)]'
+                            : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
+                        }`}
+                      >
+                        {slot.time}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 4. Form Data Pemesan */}
@@ -445,10 +564,20 @@ Mohon konfirmasi ketersediaan lapangan & detail pembayarannya. Terima kasih!`;
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(204,255,0,0.2)] mt-4"
+                disabled={submitting}
+                className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(204,255,0,0.2)] mt-4 disabled:opacity-50"
               >
-                <Send className="w-4 h-4" />
-                KIRIM BOOKING VIA WHATSAPP
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Memproses Booking...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span>KIRIM BOOKING VIA WHATSAPP</span>
+                  </>
+                )}
               </button>
 
             </form>
