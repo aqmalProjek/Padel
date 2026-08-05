@@ -1,2 +1,26 @@
 @import "tailwindcss";
 
+/* 🖨️ CSS KHUSUS CETAK STRUK THERMAL POS */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #thermal-receipt, #thermal-receipt * {
+    visibility: visible;
+  }
+  #thermal-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 58mm; /* Ukuran standar kertas thermal kasir (bisa disesuaikan ke 80mm) */
+    font-size: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    color: black !important;
+    background: white !important;
+    padding: 5mm;
+  }
+  @page {
+    size: auto;
+    margin: 0;
+  }
+}

@@ -2,28 +2,27 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { 
-  CalendarCheck, 
-  Users, 
-  MessageCircle, 
-  MapPin, 
-  ChevronRight, 
-  Check, 
-  CameraIcon, 
+import { getHourlyRate, CourtPricing } from '@/lib/pricing';
+import {
+  CalendarCheck,
+  Users,
+  MessageCircle,
+  MapPin,
+  ChevronRight,
+  Check,
   X,
   Clock,
   User,
   Mail,
   Phone,
-  Calendar as CalendarIcon,
   Send,
-  Loader2
+  Loader2,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 
-interface Court {
+interface Court extends CourtPricing {
   id: string;
   name: string;
-  price_per_hour: number;
   is_active: boolean;
 }
 
@@ -31,12 +30,13 @@ interface ExistingBooking {
   court_id: string;
   start_time: string;
   end_time: string;
+  payment_status: string;
 }
 
 export default function EksdiPadelLinktree() {
   const adminWA = "6289630041079";
-  
-  // Format YYYY-MM-DD Hari Ini untuk default & min date
+
+  // Helper YYYY-MM-DD
   const getTodayString = () => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -45,10 +45,11 @@ export default function EksdiPadelLinktree() {
   // State Modal & Booking
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
-  const [duration, setDuration] = useState<number>(1);
+  const [durationMinutes, setDurationMinutes] = useState<number>(60); // 60, 120, 180 min
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
 
   // Database Data State
   const [activeCourts, setActiveCourts] = useState<Court[]>([]);
@@ -77,15 +78,17 @@ export default function EksdiPadelLinktree() {
     fetchCourts();
   }, []);
 
-  // 2. Fetch Booking yang Sudah Ada Berdasarkan Tanggal yang Dipilih
+  // 2. Fetch Booking pada Tanggal yang Dipilih
+  // 2. Fetch Booking pada Tanggal yang Dipilih (Hanya yang LUNAS atau DP)
   const fetchBookingsForDate = async (dateStr: string) => {
     if (!dateStr) return;
     setLoadingSlots(true);
 
     const { data, error } = await supabase
       .from('bookings')
-      .select('court_id, start_time, end_time')
-      .eq('booking_date', dateStr);
+      .select('court_id, start_time, end_time, payment_status')
+      .eq('booking_date', dateStr)
+      .in('payment_status', ['paid_cashier', 'paid_dp']); // 👈 HANYA AMBIL YANG SUDAH DP ATAU LUNAS
 
     if (!error && data) {
       setExistingBookings(data as ExistingBooking[]);
@@ -101,40 +104,65 @@ export default function EksdiPadelLinktree() {
     }
   }, [selectedDate]);
 
-  // Helper Mengubah String "HH:MM" ke Menit untuk Komparasi
+  // Helper Waktu
   const timeToMinutes = (timeStr: string) => {
     const [h, m] = timeStr.split(':').map(Number);
     return h * 60 + m;
   };
 
-  // 3. Helper Cek Ketersediaan Lapangan di Slot Waktu Tertentu
-  const getAvailableCourtForSlot = (startTimeStr: string, durationHours: number) => {
-    if (activeCourts.length === 0) return null;
+  // 3. Cari Lapangan Otomatis yang Masih Kosong
+  // 3. Cari Lapangan Otomatis yang Masih Kosong (Bebas dari Jadwal Lunas / DP)
+  const getAvailableCourtForSlot = (startTimeStr: string, durationMins: number) => {
+    if (!activeCourts || activeCourts.length === 0) return null;
 
     const reqStart = timeToMinutes(startTimeStr);
-    const reqEnd = reqStart + durationHours * 60;
+    const reqEnd = reqStart + durationMins;
 
-    // Cari lapangan pertama yang TIDAK bentrok
-    for (const court of activeCourts) {
-      const isCourtBusy = existingBookings.some((b) => {
+    // Pastikan urutan lapangan dari Court 1, Court 2, dst.
+    const sortedCourts = [...activeCourts].sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const court of sortedCourts) {
+      // Cek apakah ada booking Lunas/DP di lapangan INI pada rentang jam tersebut
+      const isCourtLocked = existingBookings.some((b) => {
+        // Jika beda lapangan, abaikan
         if (b.court_id !== court.id) return false;
+
+        // Pastikan hanya status Lunas/DP yang mengunci
+        const isPaidOrDp = b.payment_status === 'paid_cashier' || b.payment_status === 'paid_dp';
+        if (!isPaidOrDp) return false;
 
         const bStart = timeToMinutes(b.start_time);
         const bEnd = timeToMinutes(b.end_time);
 
-        // Cek apakah ada irisan jam (Overlap)
+        // Rumus iris jam (Overlap Check)
         return reqStart < bEnd && reqEnd > bStart;
       });
 
-      if (!isCourtBusy) {
-        return court; // Kembalikan lapangan yang kosong ini!
+      // Jika lapangan ini TIDAK terkunci oleh Lunas/DP, PAKAI LAPANGAN INI!
+      if (!isCourtLocked) {
+        return court;
       }
     }
 
-    return null; // Semua lapangan penuh
+    return null; // Jika SEMUA lapangan terisi jadwal Lunas/DP
   };
 
-  // 4. Generate Slot Jam (06:00 - 21:00) + Filter Back Time & Fully Booked
+  // 4. Generate Date Carousel (30 Hari / 1 Bulan untuk Mobile)
+  const generateDateCarouselMobile = () => {
+    const dates = [];
+    const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const isoDate = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayNum = d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+      dates.push({ isoDate, dayName, dayNum });
+    }
+    return dates;
+  };
+
+  // 5. Generate Slot Jam (06.00 - 21.00)
   const generateTimeSlots = () => {
     const slots = [];
     const startHour = 6;
@@ -143,86 +171,114 @@ export default function EksdiPadelLinktree() {
     const now = new Date();
     const isToday = selectedDate === getTodayString();
     const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
 
-    for (let h = startHour; h < endHour; h++) {
-      for (let m of [0, 30]) {
-        const endCalculatedHour = h + duration + (m === 30 ? 0.5 : 0);
-        if (endCalculatedHour > endHour) continue; // Melebihi jam tutup
+    for (let h = startHour; h <= endHour; h++) {
+      const durationHours = durationMinutes / 60;
+      if (h + durationHours > endHour + 1) continue; // Melebihi jam tutup
 
-        const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-        
-        let isPassed = false;
+      const timeString = `${String(h).padStart(2, '0')}:00`;
+      let isPassed = false;
 
-        // A. Cek Jam Lewat (Khusus untuk Hari Ini)
-        if (isToday) {
-          if (h < currentHour || (h === currentHour && m <= currentMinute)) {
-            isPassed = true;
-          }
-        }
-
-        // B. Cek Apakah SEMUA Lapangan Penuh di Slot Jam Ini
-        if (!isPassed) {
-          const availableCourt = getAvailableCourtForSlot(timeString, duration);
-          if (!availableCourt) {
-            isPassed = true; // Penuh jika semua lapangan terisi
-          }
-        }
-
-        slots.push({
-          time: timeString,
-          isPassed,
-        });
+      if (isToday && h <= currentHour) {
+        isPassed = true;
       }
+
+      let availableCourt = null;
+      if (!isPassed) {
+        availableCourt = getAvailableCourtForSlot(timeString, durationMinutes);
+        if (!availableCourt) {
+          isPassed = true;
+        }
+      }
+
+      const refCourt = availableCourt || activeCourts[0];
+      let normalPrice = 125000;
+      let isDiscounted = false;
+      let effectivePrice = 125000;
+
+      if (refCourt) {
+        const isS1 = h >= 7 && h < 15;
+        normalPrice = isS1 ? Number(refCourt.price_session_1) : Number(refCourt.price_session_2);
+        isDiscounted = isS1 ? refCourt.is_discount_session_1 : refCourt.is_discount_session_2;
+        effectivePrice = getHourlyRate(timeString, refCourt);
+      }
+
+      slots.push({
+        time: timeString,
+        isPassed,
+        normalPrice,
+        effectivePrice,
+        isDiscounted,
+        availableCourt,
+      });
     }
     return slots;
   };
 
-  // Helper Rentang Jam (contoh: 08:30 -> 08:30 - 10:30)
-  const calculateTimeRange = (startTime: string, durationHours: number) => {
-    if (!startTime) return { display: '', endTimeStr: '' };
-    const [h, m] = startTime.split(':').map(Number);
-    
-    const totalEndMinutes = h * 60 + m + durationHours * 60;
-    const endH = Math.floor(totalEndMinutes / 60);
-    const endM = totalEndMinutes % 60;
+  // 🧠 SMART HOUR STATE RETENTION (Cek apakah jam terpilih masih valid)
+  useEffect(() => {
+    if (!selectedTime) return;
 
-    const formattedEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-    return {
-      display: `${startTime} - ${formattedEnd}`,
-      endTimeStr: `${formattedEnd}:00`,
-    };
+    const [h] = selectedTime.split(':').map(Number);
+    const endHour = 21;
+    const durationHours = durationMinutes / 60;
+
+    // Jika jam terpilih + durasi melebihi jam tutup, baru reset jam
+    if (h + durationHours > endHour + 1) {
+      setSelectedTime('');
+    } else {
+      // Cek ketersediaan slot di durasi baru
+      const court = getAvailableCourtForSlot(selectedTime, durationMinutes);
+      if (!court) {
+        setSelectedTime('');
+      }
+    }
+  }, [durationMinutes, selectedDate]);
+
+  // Helper Hitung Waktu & Total
+  const selectedCourt = selectedTime ? getAvailableCourtForSlot(selectedTime, durationMinutes) : null;
+  const durationHours = durationMinutes / 60;
+  const hourlyRate = (selectedTime && selectedCourt) ? getHourlyRate(selectedTime, selectedCourt) : 0;
+  const totalPrice = hourlyRate * durationHours;
+
+  const calculateEndTimeStr = (startTime: string, durationMins: number) => {
+    if (!startTime) return '';
+    const [h, m] = startTime.split(':').map(Number);
+    const totalMinutes = h * 60 + m + durationMins;
+    const endH = Math.floor(totalMinutes / 60);
+    const endM = totalMinutes % 60;
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
   };
 
-  // Reset Pilihan Jam saat Tanggal / Durasi Berubah
-  useEffect(() => {
-    setSelectedTime('');
-  }, [selectedDate, duration]);
+  const formatK = (val: number) => `${Math.round(val / 1000)}k`;
 
-  // 5. Submit Booking (Insert DB + WA Redirect)
+  const formatRupiah = (val: number) => {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val || 0);
+  };
+
+  // Submit Booking
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDate || !selectedTime || !formData.name || !formData.phone) {
-      alert('Mohon lengkapi semua data booking!');
+      alert('Mohon pilih jam dan isi Nama & No. HP!');
       return;
     }
 
     setSubmitting(true);
 
-    // Cari Lapangan Kosong Otomatis
-    const assignedCourt = getAvailableCourtForSlot(selectedTime, duration);
+    // Ambil ulang lapangan kosong terkini
+    const assignedCourt = getAvailableCourtForSlot(selectedTime, durationMinutes);
 
     if (!assignedCourt) {
-      alert('Maaf, semua lapangan sudah penuh di jam tersebut. Silakan pilih jam lain.');
+      alert('Maaf, slot jam ini baru saja terisi oleh pengguna lain. Silakan pilih jam lain.');
       setSubmitting(false);
       return;
     }
 
-    const { display: timeRange, endTimeStr } = calculateTimeRange(selectedTime, duration);
+    const endTime = calculateEndTimeStr(selectedTime, durationMinutes);
     const formattedStartTime = `${selectedTime}:00`;
-    const totalPrice = assignedCourt.price_per_hour * duration;
+    const formattedEndTime = `${endTime}:00`;
 
-    // 🅰️ Insert ke Database Supabase
     const { error } = await supabase.from('bookings').insert([
       {
         court_id: assignedCourt.id,
@@ -231,8 +287,8 @@ export default function EksdiPadelLinktree() {
         customer_email: formData.email || null,
         booking_date: selectedDate,
         start_time: formattedStartTime,
-        duration: duration,
-        end_time: endTimeStr,
+        duration: durationHours,
+        end_time: formattedEndTime,
         total_price: totalPrice,
         payment_status: 'pending',
         payment_method: 'cashier',
@@ -240,38 +296,34 @@ export default function EksdiPadelLinktree() {
     ]);
 
     if (error) {
-      alert('Gagal menyimpan booking ke database: ' + error.message);
+      alert('Gagal menyimpan booking: ' + error.message);
       setSubmitting(false);
       return;
     }
 
-    // 🅱️ Format Pesan WhatsApp
     const formattedDate = new Date(selectedDate).toLocaleDateString('id-ID', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
     });
 
-    const message = 
-`*NEW BOOKING REQUEST - EKSDI PADEL*
+    const message =
+      `*NEW BOOKING REQUEST - EKSDI PADEL*
 ----------------------------------------
 👤 *Nama:* ${formData.name}
 📱 *No. HP:* ${formData.phone}
 📧 *Email:* ${formData.email || '-'}
 
 📅 *Tanggal:* ${formattedDate}
-⏰ *Jam Main:* ${timeRange} (${duration} Jam)
+⏰ *Jam Main:* ${selectedTime} - ${endTime} (${durationMinutes} Min)
 🎾 *Lapangan:* ${assignedCourt.name}
+💰 *Total Tagihan:* ${formatRupiah(totalPrice)}
 ----------------------------------------
-Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via transfer. Terima kasih!`;
+Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih!`;
 
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/${adminWA}?text=${encodedMessage}`, '_blank');
+    window.open(`https://wa.me/${adminWA}?text=${encodeURIComponent(message)}`, '_blank');
 
     setSubmitting(false);
     setIsModalOpen(false);
-    fetchBookingsForDate(selectedDate); // Refresh ketersediaan slot
+    fetchBookingsForDate(selectedDate);
   };
 
   const links = [
@@ -307,13 +359,13 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via
 
   return (
     <main className="min-h-screen bg-[#0f1715] text-white flex justify-center items-start px-4 py-8 relative overflow-hidden font-sans selection:bg-[#ccff00] selection:text-black">
-      
+
       {/* Background Pattern */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,_rgba(204,255,0,0.08)_0%,_transparent_60%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
 
       <div className="w-full max-w-md flex flex-col items-center relative z-10">
-        
+
         {/* HEADER PROFILE */}
         <div className="text-center mb-6 w-full">
           <div className="relative w-24 h-24 mx-auto mb-4">
@@ -335,9 +387,18 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via
           </p>
 
           <div className="flex justify-center gap-3 mt-4">
-            <a href="https://www.instagram.com/eksdipadelcourts" target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all">
-              <CameraIcon className="w-4 h-4" />
+            <a
+              href="https://www.instagram.com/eksdipadelcourts"
+              target="_blank"
+              rel="noreferrer"
+              className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all"
+              title="Instagram Eksdi Padel"
+            >
+              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+              </svg>
             </a>
+
             <a href={`https://wa.me/${adminWA}`} target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all">
               <MessageCircle className="w-4 h-4" />
             </a>
@@ -353,8 +414,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via
 
         {/* LINK LIST */}
         <div className="w-full space-y-3.5">
-          
-          {/* 🎯 TOMBOL BOOKING UTAMA (BUKA MODAL) */}
           <button
             onClick={() => setIsModalOpen(true)}
             className="w-full group relative flex items-center p-4 rounded-2xl border backdrop-blur-md transition-all duration-300 hover:-translate-y-1 shadow-lg bg-gradient-to-r from-[#ccff00]/15 to-transparent border-[#ccff00] hover:shadow-[0_0_25px_rgba(204,255,0,0.25)] text-left"
@@ -378,7 +437,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via
             <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-[#ccff00] group-hover:translate-x-1 transition-all ml-2 shrink-0" />
           </button>
 
-          {/* LINK LAINNYA */}
           {links.map((item) => (
             <a
               key={item.id}
@@ -406,176 +464,255 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi pembayaran di lokasi/via
         {/* FOOTER */}
         <footer className="mt-10 text-center text-xs text-zinc-500 space-y-1">
           <p>© 2026 Eksdi Padel Courts. All rights reserved.</p>
-          <p>
-            Digital Solution powered by{' '}
-            <a href={`https://wa.me/${adminWA}`} target="_blank" rel="noreferrer" className="text-[#ccff00] font-semibold hover:underline">
-              Lauzit Code
-            </a>
-          </p>
         </footer>
 
       </div>
 
-      {/* ------------------ 📱 POP-UP MODAL BOOKING ------------------ */}
+      {/* ------------------ 📱 MODAL RESERVASI LAPANGAN RESPONSIF ------------------ */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm transition-all animate-fadeIn">
-          <div className="w-full max-w-lg bg-[#141e1b] border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto relative">
-            
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm transition-all animate-fadeIn">
+          <div className="w-full max-w-md bg-[#141e1b] border border-white/10 rounded-t-3xl md:rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto relative font-sans">
+
             {/* Modal Header */}
-            <div className="flex justify-between items-center border-b border-white/10 pb-4 mb-5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#ccff00]/10 border border-[#ccff00] flex items-center justify-center">
-                  <CalendarCheck className="w-4 h-4 text-[#ccff00]" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">Reservasi Lapangan</h3>
-                  <p className="text-[11px] text-zinc-400">Eksdi Padel Courts • Jam Operasional 06:00 - 21:00</p>
-                </div>
+            <div className="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <CalendarCheck className="w-4 h-4 text-[#ccff00]" /> Reservasi Lapangan
+                </h3>
+                <p className="text-[10px] text-zinc-400 mt-0.5">Eksdi Padel • Sesi 1 (07-14) & Sesi 2 (15-21)</p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
+                className="p-1.5 rounded-full bg-white/5 text-zinc-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              
-              {/* 1. Pilih Tanggal (Date Picker - Mencegah Back Date) */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+
+              {/* 1. TANGGAL MAIN: INPUT DATE DI PC / CAROUSEL + TOMBOL LAINNYA DI MOBILE */}
               <div>
-                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5 mb-2">
-                  <CalendarIcon className="w-3.5 h-3.5 text-[#ccff00]" /> 1. Pilih Tanggal Main
-                </label>
-                <input
-                  type="date"
-                  required
-                  min={getTodayString()} // Mencegah Back Date!
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#ccff00]"
-                />
+                <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                  1. Pilih Tanggal Main
+                </span>
+
+                {/* 💻 DEKSTOP / TAB (Layar Lebar) -> Gunakan Input Date Langsung */}
+                <div className="hidden md:block">
+                  <input
+                    type="date"
+                    required
+                    min={getTodayString()}
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#ccff00]"
+                  />
+                </div>
+
+                {/* 📱 MOBILE (Layar HP) -> Carousel 30 Hari + Tombol "Tgl Lainnya" */}
+                <div className="md:hidden">
+                  {!showCustomDatePicker ? (
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none items-center">
+                      {generateDateCarouselMobile().map((d) => {
+                        const isSelected = selectedDate === d.isoDate;
+                        return (
+                          <button
+                            key={d.isoDate}
+                            type="button"
+                            onClick={() => setSelectedDate(d.isoDate)}
+                            className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition-all ${isSelected
+                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_15px_rgba(204,255,0,0.25)]'
+                                : 'bg-white/5 border-white/10 text-zinc-400 hover:border-white/20'
+                              }`}
+                          >
+                            <span className="block text-[10px] uppercase font-semibold">{d.dayName}</span>
+                            <span className="block text-xs font-bold mt-0.5">{d.dayNum}</span>
+                          </button>
+                        );
+                      })}
+
+                      {/* Tombol Tgl Lainnya di Paling Kanan Mobile */}
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomDatePicker(true)}
+                        className="px-3.5 py-2 rounded-2xl border border-white/10 bg-white/5 text-center shrink-0 text-zinc-300 font-bold flex flex-col items-center justify-center"
+                      >
+                        <CalendarIcon className="w-3.5 h-3.5 text-[#ccff00]" />
+                        <span className="text-[10px] mt-0.5 whitespace-nowrap">Tgl Lainnya</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        required
+                        min={getTodayString()}
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-[#ccff00]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomDatePicker(false)}
+                        className="px-3 py-2 rounded-xl bg-white/10 text-xs font-bold text-zinc-300 shrink-0"
+                      >
+                        Kembali
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* 2. Pilih Durasi Main */}
+              {/* 2. GRID SLOT JAM & BADGE HARGA (DENGAN CORET DISKON) */}
               <div>
-                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5 mb-2">
-                  <Clock className="w-3.5 h-3.5 text-[#ccff00]" /> 2. Durasi Main
-                </label>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                    2. Pilih Jam Mulai
+                  </span>
+                  {selectedTime && (
+                    <span className="text-[10px] font-bold text-[#ccff00] bg-[#ccff00]/10 px-2 py-0.5 rounded-md border border-[#ccff00]/30">
+                      {selectedTime} - {calculateEndTimeStr(selectedTime, durationMinutes)}
+                    </span>
+                  )}
+                </div>
+
+                {loadingSlots ? (
+                  <div className="text-center py-8 text-xs text-zinc-400 flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#ccff00]" />
+                    <span>Mengecek ketersediaan lapangan...</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {generateTimeSlots().map((slot) => {
+                      const isSelected = selectedTime === slot.time;
+                      return (
+                        <button
+                          key={slot.time}
+                          type="button"
+                          disabled={slot.isPassed}
+                          onClick={() => setSelectedTime(slot.time)}
+                          className={`p-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all ${slot.isPassed
+                              ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
+                              : isSelected
+                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
+                                : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
+                            }`}
+                        >
+                          <span className="text-xs font-bold">{slot.time}</span>
+
+                          <div className="mt-0.5 flex flex-col items-center">
+                            {slot.isDiscounted ? (
+                              <>
+                                <span className="text-[8px] line-through text-zinc-500 leading-none">
+                                  {formatK(slot.normalPrice)}
+                                </span>
+                                <span className={`text-[9px] font-extrabold leading-none ${isSelected ? 'text-zinc-950' : 'text-amber-400'}`}>
+                                  {formatK(slot.effectivePrice)}
+                                </span>
+                              </>
+                            ) : (
+                              <span className={`text-[9px] font-semibold ${isSelected ? 'text-zinc-950' : 'text-zinc-400'}`}>
+                                {formatK(slot.effectivePrice)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 3. DURATION SELECTOR (60 MIN, 120 MIN, 180 MIN) */}
+              <div>
+                <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                  3. Durasi Main
+                </span>
                 <div className="grid grid-cols-3 gap-2">
-                  {[1, 2, 3].map((hr) => (
+                  {[60, 120, 180].map((mins) => (
                     <button
-                      key={hr}
+                      key={mins}
                       type="button"
-                      onClick={() => setDuration(hr)}
-                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
-                        duration === hr
-                          ? 'bg-[#ccff00]/20 border-[#ccff00] text-[#ccff00]'
+                      onClick={() => setDurationMinutes(mins)}
+                      className={`py-2.5 rounded-2xl border text-xs font-bold transition-all ${durationMinutes === mins
+                          ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 shadow-[0_0_10px_rgba(204,255,0,0.2)]'
                           : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
-                      }`}
+                        }`}
                     >
-                      {hr} Jam
+                      {mins} min
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* 3. Pilih Jam Booking */}
-              <div>
-                <label className="text-xs font-semibold text-zinc-300 flex items-center justify-between mb-2">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-[#ccff00]" /> 3. Pilih Jam Mulai
-                  </span>
-                  {selectedTime && (
-                    <span className="text-[11px] text-[#ccff00] font-bold bg-[#ccff00]/10 px-2 py-0.5 rounded-md border border-[#ccff00]/30">
-                      Waktu: {calculateTimeRange(selectedTime, duration).display}
-                    </span>
-                  )}
-                </label>
-
-                {loadingSlots ? (
-                  <div className="text-center py-6 text-xs text-zinc-400 flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-[#ccff00]" />
-                    <span>Mengecek Ketersediaan Slot...</span>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1">
-                    {generateTimeSlots().map((slot) => (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        disabled={slot.isPassed}
-                        onClick={() => setSelectedTime(slot.time)}
-                        className={`p-2 rounded-lg border text-xs font-medium transition-all ${
-                          slot.isPassed
-                            ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed'
-                            : selectedTime === slot.time
-                            ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-bold shadow-[0_0_10px_rgba(204,255,0,0.3)]'
-                            : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
-                        }`}
-                      >
-                        {slot.time}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 4. Form Data Pemesan */}
-              <div className="space-y-3 pt-2 border-t border-white/10">
+              {/* 4. FORM DATA PEMESAN */}
+              <div className="space-y-2.5 pt-2 border-t border-white/10">
                 <div className="relative">
-                  <User className="w-4 h-4 text-zinc-500 absolute left-3 top-3.5" />
+                  <User className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
                   <input
                     type="text"
                     required
-                    placeholder="Atas Nama Siapa?"
+                    placeholder="Atas Nama Pemesan"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div className="relative">
-                    <Phone className="w-4 h-4 text-zinc-500 absolute left-3 top-3.5" />
+                    <Phone className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
                     <input
                       type="tel"
                       required
                       placeholder="Nomor HP / WA"
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
                     />
                   </div>
 
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-zinc-500 absolute left-3 top-3.5" />
+                    <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
                     <input
                       type="email"
                       placeholder="Email (Opsional)"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Submit Button */}
+              {/* 5. SUMMARY ALOKASI LAPANGAN & TOTAL BAYAR */}
+              {selectedTime && selectedCourt && (
+                <div className="p-3 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="block font-bold text-white">{selectedCourt.name} (Otomatis)</span>
+                    <span className="text-[10px] text-zinc-400">
+                      {selectedTime} - {calculateEndTimeStr(selectedTime, durationMinutes)} ({durationMinutes} min)
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-zinc-400 block">Total Estimasi:</span>
+                    <span className="text-sm font-black text-[#ccff00]">{formatRupiah(totalPrice)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* SUBMIT BUTTON */}
               <button
                 type="submit"
-                disabled={submitting}
-                className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(204,255,0,0.2)] mt-4 disabled:opacity-50"
+                disabled={submitting || !selectedTime}
+                className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
               >
                 {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Memproses Booking...</span>
-                  </>
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>KIRIM BOOKING VIA WHATSAPP</span>
+                    <span>KIRIM RESERVASI VIA WHATSAPP</span>
                   </>
                 )}
               </button>
