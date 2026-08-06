@@ -13,8 +13,10 @@ import {
   Clock,
   DollarSign,
   Printer,
-  Receipt
+  Receipt,
+  Trash2
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 interface PosOrderItem {
   item_name: string;
@@ -36,6 +38,8 @@ interface PosOrder {
 }
 
 export default function KasirCafePage() {
+  const { role, loading: authLoading } = useAuth();
+    console.log('role',role, 'authLoading', authLoading);
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -168,7 +172,7 @@ export default function KasirCafePage() {
     window.open(doc.output('bloburl'), '_blank');
   };
 
-  // Tandai Pesanan Lunas (Bisa Untuk Semua User)
+  // Tandai Pesanan Lunas
   const handleMarkAsPaid = async (order: PosOrder) => {
     const { error } = await supabase
       .from('pos_orders')
@@ -176,11 +180,27 @@ export default function KasirCafePage() {
       .eq('id', order.id);
 
     if (!error) {
-      // Print Struk jsPDF Secara Otomatis
       printThermalReceiptWithjsPDF({ ...order, payment_status: 'paid' });
       fetchOrders();
     } else {
       alert('Gagal mengupdate status: ' + error.message);
+    }
+  };
+
+  // 🗑️ Hapus Pesanan
+  const handleDeleteOrder = async (order: PosOrder) => {
+    if (confirm(`Apakah Anda yakin ingin menghapus pesanan ${order.order_number} (${order.customer_name})?`)) {
+      // 1. Hapus pos_order_items terlebih dahulu
+      await supabase.from('pos_order_items').delete().eq('order_id', order.id);
+
+      // 2. Hapus pos_orders
+      const { error } = await supabase.from('pos_orders').delete().eq('id', order.id);
+
+      if (!error) {
+        fetchOrders();
+      } else {
+        alert('Gagal menghapus pesanan: ' + error.message);
+      }
     }
   };
 
@@ -309,7 +329,7 @@ export default function KasirCafePage() {
                 </div>
               </div>
 
-              {/* Total & Action Button (All User) */}
+              {/* Total & Action Buttons */}
               <div className="pt-3 border-t border-white/10 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
@@ -332,14 +352,26 @@ export default function KasirCafePage() {
                   )}
                 </div>
 
-                {/* Tombol Cetak Struk jsPDF */}
-                <button
-                  onClick={() => printThermalReceiptWithjsPDF(o)}
-                  className="w-full bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all"
-                >
-                  <Printer className="w-3.5 h-3.5 text-[#ccff00]" />
-                  CETAK STRUK POS
-                </button>
+                {/* Action Buttons: Cetak Struk & Hapus */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => printThermalReceiptWithjsPDF(o)}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-[#ccff00]" />
+                    CETAK STRUK POS
+                  </button>
+                  {role === 'owner' && (
+
+                  <button
+                    onClick={() => handleDeleteOrder(o)}
+                    className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl transition-all"
+                    title="Hapus Pesanan"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                   )}
+                </div>
               </div>
 
             </div>
