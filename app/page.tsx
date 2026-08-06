@@ -374,8 +374,8 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
     },
     {
       id: 'menu',
-      title: 'Menu',
-      subtitle: 'Menu EKSDI koffie',
+      title: 'Menu EKSDI koffie',
+      subtitle: '',
       icon: <CookieIcon className="w-5 h-5 text-amber-500" />,
       href: 'https://drive.google.com/drive/folders/1iB1-J2mxS1aZPw3fqEXQB8Ck4fu3JkGt',
     },
