@@ -17,7 +17,11 @@ import {
   Phone,
   Send,
   Loader2,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  HelpCircle,
+  ShieldCheck,
+  Award,
+  Zap
 } from 'lucide-react';
 
 interface Court extends CourtPricing {
@@ -47,6 +51,7 @@ export default function EksdiPadelLinktree() {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
   const [durationMinutes, setDurationMinutes] = useState<number>(60); // 60, 120, 180 min
   const [selectedTime, setSelectedTime] = useState<string>('');
+  const [selectedCourtId, setSelectedCourtId] = useState<string>('auto'); // 'auto' atau court.id spesifik
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
@@ -78,7 +83,6 @@ export default function EksdiPadelLinktree() {
     fetchCourts();
   }, []);
 
-  // 2. Fetch Booking pada Tanggal yang Dipilih
   // 2. Fetch Booking pada Tanggal yang Dipilih (Hanya yang LUNAS atau DP)
   const fetchBookingsForDate = async (dateStr: string) => {
     if (!dateStr) return;
@@ -88,7 +92,7 @@ export default function EksdiPadelLinktree() {
       .from('bookings')
       .select('court_id, start_time, end_time, payment_status')
       .eq('booking_date', dateStr)
-      .in('payment_status', ['paid_cashier', 'paid_dp']); // 👈 HANYA AMBIL YANG SUDAH DP ATAU LUNAS
+      .in('payment_status', ['paid_cashier', 'paid_dp']);
 
     if (!error && data) {
       setExistingBookings(data as ExistingBooking[]);
@@ -110,44 +114,53 @@ export default function EksdiPadelLinktree() {
     return h * 60 + m;
   };
 
-  // 3. Cari Lapangan Otomatis yang Masih Kosong
-  // 3. Cari Lapangan Otomatis yang Masih Kosong (Bebas dari Jadwal Lunas / DP)
-  const getAvailableCourtForSlot = (startTimeStr: string, durationMins: number) => {
-    if (!activeCourts || activeCourts.length === 0) return null;
-
+  // Cek Apakah Lapangan Spesifik Terkunci / Terisi pada Jam & Durasi Ini
+  const isCourtLockedForTime = (courtId: string, startTimeStr: string, durationMins: number) => {
+    if (!startTimeStr) return false;
     const reqStart = timeToMinutes(startTimeStr);
     const reqEnd = reqStart + durationMins;
 
-    // Pastikan urutan lapangan dari Court 1, Court 2, dst.
+    return existingBookings.some((b) => {
+      if (b.court_id !== courtId) return false;
+      const isPaidOrDp = b.payment_status === 'paid_cashier' || b.payment_status === 'paid_dp';
+      if (!isPaidOrDp) return false;
+
+      const bStart = timeToMinutes(b.start_time);
+      const bEnd = timeToMinutes(b.end_time);
+
+      // Rumus Overlap Check
+      return reqStart < bEnd && reqEnd > bStart;
+    });
+  };
+
+  // 3. Cari Lapangan Otomatis yang Masih Kosong (Jika Mode 'auto')
+  const getAutoAvailableCourt = (startTimeStr: string, durationMins: number) => {
+    if (!activeCourts || activeCourts.length === 0) return null;
     const sortedCourts = [...activeCourts].sort((a, b) => a.name.localeCompare(b.name));
 
     for (const court of sortedCourts) {
-      // Cek apakah ada booking Lunas/DP di lapangan INI pada rentang jam tersebut
-      const isCourtLocked = existingBookings.some((b) => {
-        // Jika beda lapangan, abaikan
-        if (b.court_id !== court.id) return false;
-
-        // Pastikan hanya status Lunas/DP yang mengunci
-        const isPaidOrDp = b.payment_status === 'paid_cashier' || b.payment_status === 'paid_dp';
-        if (!isPaidOrDp) return false;
-
-        const bStart = timeToMinutes(b.start_time);
-        const bEnd = timeToMinutes(b.end_time);
-
-        // Rumus iris jam (Overlap Check)
-        return reqStart < bEnd && reqEnd > bStart;
-      });
-
-      // Jika lapangan ini TIDAK terkunci oleh Lunas/DP, PAKAI LAPANGAN INI!
-      if (!isCourtLocked) {
-        return court;
-      }
+      const locked = isCourtLockedForTime(court.id, startTimeStr, durationMins);
+      if (!locked) return court;
     }
-
-    return null; // Jika SEMUA lapangan terisi jadwal Lunas/DP
+    return null; // Semua terisi
   };
 
-  // 4. Generate Date Carousel (30 Hari / 1 Bulan untuk Mobile)
+  // Mendapatkan Lapangan Terpilih Aktual (Otomatis / Manual)
+  const getFinalSelectedCourt = () => {
+    if (!selectedTime) return null;
+
+    if (selectedCourtId === 'auto') {
+      return getAutoAvailableCourt(selectedTime, durationMinutes);
+    } else {
+      const court = activeCourts.find((c) => c.id === selectedCourtId);
+      if (court && !isCourtLockedForTime(court.id, selectedTime, durationMinutes)) {
+        return court;
+      }
+      return null;
+    }
+  };
+
+  // 4. Generate Date Carousel (30 Hari untuk Mobile)
   const generateDateCarouselMobile = () => {
     const dates = [];
     const today = new Date();
@@ -174,7 +187,7 @@ export default function EksdiPadelLinktree() {
 
     for (let h = startHour; h <= endHour; h++) {
       const durationHours = durationMinutes / 60;
-      if (h + durationHours > endHour + 1) continue; // Melebihi jam tutup
+      if (h + durationHours > endHour + 1) continue;
 
       const timeString = `${String(h).padStart(2, '0')}:00`;
       let isPassed = false;
@@ -183,15 +196,18 @@ export default function EksdiPadelLinktree() {
         isPassed = true;
       }
 
-      let availableCourt = null;
+      // Slot dianggap terisi penuh HANYA jika semua lapangan habis
+      let hasAvailableCourt = false;
       if (!isPassed) {
-        availableCourt = getAvailableCourtForSlot(timeString, durationMinutes);
-        if (!availableCourt) {
-          isPassed = true;
-        }
+        const court = getAutoAvailableCourt(timeString, durationMinutes);
+        if (court) hasAvailableCourt = true;
       }
 
-      const refCourt = availableCourt || activeCourts[0];
+      if (!hasAvailableCourt && !isToday) {
+        isPassed = true;
+      }
+
+      const refCourt = activeCourts[0];
       let normalPrice = 125000;
       let isDiscounted = false;
       let effectivePrice = 125000;
@@ -209,36 +225,25 @@ export default function EksdiPadelLinktree() {
         normalPrice,
         effectivePrice,
         isDiscounted,
-        availableCourt,
       });
     }
     return slots;
   };
 
-  // 🧠 SMART HOUR STATE RETENTION (Cek apakah jam terpilih masih valid)
+  // Reset Jam Jika Pilihan Lapangan Manual Ternyata Bentrok
   useEffect(() => {
-    if (!selectedTime) return;
-
-    const [h] = selectedTime.split(':').map(Number);
-    const endHour = 21;
-    const durationHours = durationMinutes / 60;
-
-    // Jika jam terpilih + durasi melebihi jam tutup, baru reset jam
-    if (h + durationHours > endHour + 1) {
-      setSelectedTime('');
-    } else {
-      // Cek ketersediaan slot di durasi baru
-      const court = getAvailableCourtForSlot(selectedTime, durationMinutes);
-      if (!court) {
-        setSelectedTime('');
+    if (selectedTime && selectedCourtId !== 'auto') {
+      const locked = isCourtLockedForTime(selectedCourtId, selectedTime, durationMinutes);
+      if (locked) {
+        setSelectedCourtId('auto'); // Kembalikan ke otomatis jika manual bentrok
       }
     }
-  }, [durationMinutes, selectedDate]);
+  }, [selectedTime, durationMinutes, selectedDate, selectedCourtId]);
 
   // Helper Hitung Waktu & Total
-  const selectedCourt = selectedTime ? getAvailableCourtForSlot(selectedTime, durationMinutes) : null;
+  const finalCourt = getFinalSelectedCourt();
   const durationHours = durationMinutes / 60;
-  const hourlyRate = (selectedTime && selectedCourt) ? getHourlyRate(selectedTime, selectedCourt) : 0;
+  const hourlyRate = (selectedTime && finalCourt) ? getHourlyRate(selectedTime, finalCourt) : 0;
   const totalPrice = hourlyRate * durationHours;
 
   const calculateEndTimeStr = (startTime: string, durationMins: number) => {
@@ -266,11 +271,10 @@ export default function EksdiPadelLinktree() {
 
     setSubmitting(true);
 
-    // Ambil ulang lapangan kosong terkini
-    const assignedCourt = getAvailableCourtForSlot(selectedTime, durationMinutes);
+    const assignedCourt = getFinalSelectedCourt();
 
     if (!assignedCourt) {
-      alert('Maaf, slot jam ini baru saja terisi oleh pengguna lain. Silakan pilih jam lain.');
+      alert('Maaf, lapangan ini baru saja terisi. Silakan pilih lapangan / jam lainnya.');
       setSubmitting(false);
       return;
     }
@@ -336,17 +340,27 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
     },
     {
       id: 'admin1',
-      title: 'Chat Admin 1 (General Info)',
-      subtitle: 'Layanan konsultasi & info sewa raket/alat',
-      icon: <MessageCircle className="w-5 h-5 text-emerald-400" />,
-      href: `https://wa.me/${adminWA}?text=Halo%20Admin%201,%20ada%20yang%20ingin%20saya%20tanyakan%20seputar%20Eksdi%20Padel`,
+      title: 'Chat Admin 1 (Booking & Informasi)',
+      subtitle: 'Reservasi jadwal main, sewa raket, & info umum',
+      icon: (
+        <svg className="w-5 h-5 fill-emerald-400" viewBox="0 0 24 24">
+          <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.605 1.728zm6.173-3.88c1.554.922 3.31 1.409 5.099 1.41h.005c5.454 0 9.89-4.435 9.893-9.89.001-2.642-1.028-5.126-2.897-6.996-1.868-1.869-4.351-2.898-6.993-2.898-5.454 0-9.89 4.435-9.893 9.89-.001 1.841.503 3.639 1.46 5.2l-.524 1.916 1.85-.482z" />
+        </svg>
+      ),
+      href: `https://wa.me/${adminWA}?text=${encodeURIComponent(
+        'Halo Admin Eksdi Padel, saya mau tanya info booking lapangan & sewa raket...'
+      )}`,
     },
     {
-      id: 'admin2',
-      title: 'Chat Admin 2 (Event & Group)',
-      subtitle: 'Khusus reservasi event / turnamen',
-      icon: <MessageCircle className="w-5 h-5 text-emerald-400" />,
-      href: `https://wa.me/${adminWA}?text=Halo%20Admin%202,%20mau%20tanya%20soal%20event/tournament%20di%20Eksdi%20Padel`,
+      id: 'instagram',
+      title: 'Instagram @eksdipadel',
+      subtitle: 'Cek keseruan event, promo, & update komunitas',
+      icon: (
+        <svg className="w-5 h-5 fill-pink-400" viewBox="0 0 24 24">
+          <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+        </svg>
+      ),
+      href: 'https://www.instagram.com/eksdipadel',
     },
     {
       id: 'location',
@@ -364,31 +378,36 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,_rgba(204,255,0,0.08)_0%,_transparent_60%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
 
-      <div className="w-full max-w-md flex flex-col items-center relative z-10">
+      <div className="w-full max-w-md flex flex-col items-center relative z-10 space-y-6">
 
         {/* HEADER PROFILE */}
-        <div className="text-center mb-6 w-full">
+        <header className="text-center w-full">
           <div className="relative w-24 h-24 mx-auto mb-4">
-            <div className="w-full h-full rounded-full bg-gradient-to-br from-zinc-800 to-zinc-950 border-2 border-[#ccff00] flex items-center justify-center shadow-[0_0_20px_rgba(204,255,0,0.2)]">
-              <div className="w-10 h-10 rounded-full border-2 border-dashed border-[#ccff00] flex items-center justify-center">
-                <span className="text-[#ccff00] text-[10px] font-black tracking-widest">EKSDI</span>
-              </div>
+            {/* Container Lingkaran Foto Logo */}
+            <div className="w-full h-full rounded-full bg-[#141e1b] border-2 border-[#ccff00] overflow-hidden shadow-[0_0_20px_rgba(204,255,0,0.2)] flex items-center justify-center p-1">
+              <img
+                src="/eksdipadel.png"
+                alt="Eksdi Padel Logo"
+                className="w-full h-full object-contain rounded-full"
+              />
             </div>
-            <div className="absolute bottom-0 right-0 bg-[#ccff00] text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs shadow-md">
+
+            {/* Badge Verified Check */}
+            <div className="absolute bottom-0 right-0 bg-[#ccff00] text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs shadow-md z-10">
               <Check className="w-3.5 h-3.5 stroke-[3]" />
             </div>
           </div>
 
           <h1 className="text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-white via-zinc-200 to-zinc-400 uppercase">
-            EKSDI PADEL
+            EKSDI PADEL COURTS
           </h1>
           <p className="text-xs text-zinc-400 font-medium mt-1">
-            Premium Padel Courts & Community
+            Sewa Lapangan Padel Premium & Komunitas Olahraga Tasikmalaya
           </p>
 
           <div className="flex justify-center gap-3 mt-4">
             <a
-              href="https://www.instagram.com/eksdipadelcourts"
+              href="https://www.instagram.com/eksdipadel"
               target="_blank"
               rel="noreferrer"
               className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all"
@@ -399,21 +418,21 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
               </svg>
             </a>
 
-            <a href={`https://wa.me/${adminWA}`} target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all">
+            <a href={`https://wa.me/${adminWA}`} target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all" title="WhatsApp Eksdi Padel">
               <MessageCircle className="w-4 h-4" />
             </a>
-            <a href="https://share.google/BoMBuKVnjijSLVPh6" target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all">
+            <a href="https://share.google/BoMBuKVnjijSLVPh6" target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 hover:border-[#ccff00] hover:text-[#ccff00] transition-all" title="Google Maps Eksdi Padel">
               <MapPin className="w-4 h-4" />
             </a>
           </div>
-        </div>
+        </header>
 
-        <div className="w-full text-left text-[11px] font-bold text-[#ccff00] uppercase tracking-widest my-3 pl-1">
-          Quick Action
-        </div>
+        {/* LINK LIST & QUICK ACTION */}
+        <section className="w-full space-y-3.5">
+          <div className="w-full text-left text-[11px] font-bold text-[#ccff00] uppercase tracking-widest pl-1">
+            Quick Action
+          </div>
 
-        {/* LINK LIST */}
-        <div className="w-full space-y-3.5">
           <button
             onClick={() => setIsModalOpen(true)}
             className="w-full group relative flex items-center p-4 rounded-2xl border backdrop-blur-md transition-all duration-300 hover:-translate-y-1 shadow-lg bg-gradient-to-r from-[#ccff00]/15 to-transparent border-[#ccff00] hover:shadow-[0_0_25px_rgba(204,255,0,0.25)] text-left"
@@ -431,7 +450,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                   ONLINE
                 </span>
               </div>
-              <p className="text-xs text-zinc-400 truncate mt-0.5">Cek jam & langsung reservasi via WA</p>
+              <p className="text-xs text-zinc-400 truncate mt-0.5">Cek jam, pilih lapangan & reservasi WA</p>
             </div>
 
             <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-[#ccff00] group-hover:translate-x-1 transition-all ml-2 shrink-0" />
@@ -459,16 +478,80 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
               <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-[#ccff00] group-hover:translate-x-1 transition-all ml-2 shrink-0" />
             </a>
           ))}
-        </div>
+        </section>
+
+        {/* 🌟 SEO KONTEN TERSTRUKTUR & INFORMASI FASILITAS */}
+        <section className="w-full bg-[#141e1b] border border-white/10 rounded-2xl p-4 space-y-4 text-left">
+          <h2 className="text-xs font-black text-[#ccff00] uppercase tracking-wider flex items-center gap-2">
+            <Award className="w-4 h-4" /> Mengapa Memilih Eksdi Padel Courts?
+          </h2>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 space-y-1">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <div className="font-bold text-white">Lapangan Karpet WPT</div>
+              <p className="text-[10px] text-zinc-400">Standar internasional World Padel Tour dengan pencerahan LED terang.</p>
+            </div>
+            <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 space-y-1">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <div className="font-bold text-white">Rental Alat Lengkap</div>
+              <p className="text-[10px] text-zinc-400">Sewa raket premium & bola resmi langsung di tempat lokasi.</p>
+            </div>
+          </div>
+
+          {/* Sesi & Tarif Ringkas */}
+          <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1.5 text-xs">
+            <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Jadwal Sesi Tarif</span>
+              <Clock className="w-3.5 h-3.5 text-[#ccff00]" />
+            </div>
+            <div className="flex justify-between text-[11px] text-zinc-300">
+              <span>Sesi 1 (Pagi - Siang: 07.00 - 15.00)</span>
+              <strong className="text-[#ccff00]">Promo Pagi</strong>
+            </div>
+            <div className="flex justify-between text-[11px] text-zinc-300">
+              <span>Sesi 2 (Sore - Malam: 15.00 - 21.00)</span>
+              <strong className="text-white">Reguler / Prime</strong>
+            </div>
+          </div>
+
+          {/* SEO Accordion FAQ */}
+          <div className="space-y-2 pt-2 border-t border-white/10">
+            <h3 className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+              <HelpCircle className="w-3.5 h-3.5 text-[#ccff00]" /> Pertanyaan Sering Diajukan (FAQ)
+            </h3>
+
+            <details className="group border border-white/5 bg-white/5 rounded-xl p-2.5 text-[11px] cursor-pointer">
+              <summary className="font-bold text-white flex justify-between items-center">
+                Apakah bisa sewa raket di lokasi?
+                <span className="text-zinc-500 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <p className="text-zinc-400 mt-1.5 text-[10px] leading-relaxed">
+                Tentu! Eksdi Padel menyediakan persewaan raket padel berkualitas tinggi dan penjualan bola resmi di area Kasir Cafe.
+              </p>
+            </details>
+
+            <details className="group border border-white/5 bg-white/5 rounded-xl p-2.5 text-[11px] cursor-pointer">
+              <summary className="font-bold text-white flex justify-between items-center">
+                Bagaimana cara konfirmasi booking?
+                <span className="text-zinc-500 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <p className="text-zinc-400 mt-1.5 text-[10px] leading-relaxed">
+                Setelah memilih jam dan lapangan di web ini, Anda akan diarahkan ke WhatsApp Admin untuk melunasi pembayaran (DP / Cashier).
+              </p>
+            </details>
+          </div>
+        </section>
 
         {/* FOOTER */}
-        <footer className="mt-10 text-center text-xs text-zinc-500 space-y-1">
+        <footer className="text-center text-xs text-zinc-500 space-y-1 pb-6">
           <p>© 2026 Eksdi Padel Courts. All rights reserved.</p>
+          <p className="text-[10px] text-zinc-600">Tasikmalaya, Jawa Barat, Indonesia</p>
         </footer>
 
       </div>
 
-      {/* ------------------ 📱 MODAL RESERVASI LAPANGAN RESPONSIF ------------------ */}
+      {/* ------------------ 📱 MODAL RESERVASI LAPANGAN RESPONSIF DENGAN PILIHAN LAPANGAN ------------------ */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm transition-all animate-fadeIn">
           <div className="w-full max-w-md bg-[#141e1b] border border-white/10 rounded-t-3xl md:rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto relative font-sans">
@@ -491,13 +574,13 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
 
             <form onSubmit={handleSubmit} className="space-y-4">
 
-              {/* 1. TANGGAL MAIN: INPUT DATE DI PC / CAROUSEL + TOMBOL LAINNYA DI MOBILE */}
+              {/* 1. TANGGAL MAIN */}
               <div>
                 <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
                   1. Pilih Tanggal Main
                 </span>
 
-                {/* 💻 DEKSTOP / TAB (Layar Lebar) -> Gunakan Input Date Langsung */}
+                {/* 💻 DEKSTOP / TAB */}
                 <div className="hidden md:block">
                   <input
                     type="date"
@@ -509,7 +592,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                   />
                 </div>
 
-                {/* 📱 MOBILE (Layar HP) -> Carousel 30 Hari + Tombol "Tgl Lainnya" */}
+                {/* 📱 MOBILE */}
                 <div className="md:hidden">
                   {!showCustomDatePicker ? (
                     <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none items-center">
@@ -521,8 +604,8 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                             type="button"
                             onClick={() => setSelectedDate(d.isoDate)}
                             className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition-all ${isSelected
-                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_15px_rgba(204,255,0,0.25)]'
-                                : 'bg-white/5 border-white/10 text-zinc-400 hover:border-white/20'
+                              ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_15px_rgba(204,255,0,0.25)]'
+                              : 'bg-white/5 border-white/10 text-zinc-400 hover:border-white/20'
                               }`}
                           >
                             <span className="block text-[10px] uppercase font-semibold">{d.dayName}</span>
@@ -531,7 +614,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                         );
                       })}
 
-                      {/* Tombol Tgl Lainnya di Paling Kanan Mobile */}
                       <button
                         type="button"
                         onClick={() => setShowCustomDatePicker(true)}
@@ -563,7 +645,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                 </div>
               </div>
 
-              {/* 2. GRID SLOT JAM & BADGE HARGA (DENGAN CORET DISKON) */}
+              {/* 2. GRID SLOT JAM */}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
@@ -592,10 +674,10 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                           disabled={slot.isPassed}
                           onClick={() => setSelectedTime(slot.time)}
                           className={`p-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all ${slot.isPassed
-                              ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
-                              : isSelected
-                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
-                                : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
+                            ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
+                            : isSelected
+                              ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
+                              : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
                             }`}
                         >
                           <span className="text-xs font-bold">{slot.time}</span>
@@ -623,7 +705,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                 )}
               </div>
 
-              {/* 3. DURATION SELECTOR (60 MIN, 120 MIN, 180 MIN) */}
+              {/* 3. DURATION SELECTOR */}
               <div>
                 <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
                   3. Durasi Main
@@ -635,8 +717,8 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                       type="button"
                       onClick={() => setDurationMinutes(mins)}
                       className={`py-2.5 rounded-2xl border text-xs font-bold transition-all ${durationMinutes === mins
-                          ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 shadow-[0_0_10px_rgba(204,255,0,0.2)]'
-                          : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
+                        ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 shadow-[0_0_10px_rgba(204,255,0,0.2)]'
+                        : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
                         }`}
                     >
                       {mins} min
@@ -645,7 +727,60 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                 </div>
               </div>
 
-              {/* 4. FORM DATA PEMESAN */}
+              {/* 4. PILIHAN LAPANGAN (OTOMATIS / MANUAL COURT) */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                    4. Pilih Lapangan
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    *Pilih Otomatis / Manual
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {/* Pilihan Otomatis */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCourtId('auto')}
+                    className={`py-2.5 px-2 rounded-2xl border text-center transition-all ${selectedCourtId === 'auto'
+                      ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_10px_rgba(204,255,0,0.2)]'
+                      : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
+                      }`}
+                  >
+                    <span className="text-xs font-bold block">Otomatis</span>
+                    <span className="text-[8px] uppercase tracking-wider opacity-80 block">Cari Kosong</span>
+                  </button>
+
+                  {/* Pilihan Manual dari Master Lapangan Active */}
+                  {activeCourts.map((court) => {
+                    const isLocked = selectedTime ? isCourtLockedForTime(court.id, selectedTime, durationMinutes) : false;
+                    const isSelected = selectedCourtId === court.id;
+
+                    return (
+                      <button
+                        key={court.id}
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => setSelectedCourtId(court.id)}
+                        className={`py-2.5 px-2 rounded-2xl border text-center transition-all ${isLocked
+                          ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
+                          : isSelected
+                            ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_10px_rgba(204,255,0,0.2)]'
+                            : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
+                          }`}
+                      >
+                        <span className="text-xs font-bold block truncate">{court.name}</span>
+                        <span className="text-[8px] uppercase tracking-wider opacity-80 block">
+                          {isLocked ? 'Penuh' : 'Tersedia'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 5. FORM DATA PEMESAN */}
               <div className="space-y-2.5 pt-2 border-t border-white/10">
                 <div className="relative">
                   <User className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
@@ -685,11 +820,13 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                 </div>
               </div>
 
-              {/* 5. SUMMARY ALOKASI LAPANGAN & TOTAL BAYAR */}
-              {selectedTime && selectedCourt && (
+              {/* 6. SUMMARY ALOKASI LAPANGAN & TOTAL BAYAR */}
+              {selectedTime && finalCourt && (
                 <div className="p-3 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between text-xs">
                   <div>
-                    <span className="block font-bold text-white">{selectedCourt.name} (Otomatis)</span>
+                    <span className="block font-bold text-white">
+                      {finalCourt.name} {selectedCourtId === 'auto' ? '(Otomatis System)' : '(Pilihan Anda)'}
+                    </span>
                     <span className="text-[10px] text-zinc-400">
                       {selectedTime} - {calculateEndTimeStr(selectedTime, durationMinutes)} ({durationMinutes} min)
                     </span>
@@ -704,7 +841,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
               {/* SUBMIT BUTTON */}
               <button
                 type="submit"
-                disabled={submitting || !selectedTime}
+                disabled={submitting || !selectedTime || !finalCourt}
                 className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
               >
                 {submitting ? (
