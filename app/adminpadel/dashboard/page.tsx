@@ -69,7 +69,7 @@ export default function DashboardKasirPage() {
   const { role, loading: authLoading } = useAuth();
   console.log('role',role, 'authLoading', authLoading);
   
-  const ownerWA = "6289630041079"; // WA Owner untuk Notif Kasir
+  const ownerWA = "628132314141"; // WA Owner untuk Notif Kasir
 
   // Helper YYYY-MM-DD
   const getTodayString = () => {
