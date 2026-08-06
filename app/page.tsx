@@ -34,7 +34,7 @@ interface ExistingBooking {
 }
 
 export default function EksdiPadelLinktree() {
-  const adminWA = "6289630041079";
+  const adminWA = "628132314141";
 
   // Helper YYYY-MM-DD
   const getTodayString = () => {

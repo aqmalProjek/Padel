@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import jsPDF from 'jspdf';
 import { 
   Coffee, 
   Pizza, 
@@ -9,7 +10,6 @@ import {
   Search, 
   Plus, 
   Minus, 
-  Trash2, 
   ShoppingBag, 
   User, 
   CreditCard, 
@@ -18,7 +18,7 @@ import {
   CheckCircle2, 
   Loader2, 
   Receipt,
-  X,
+  Printer,
   UtensilsCrossed
 } from 'lucide-react';
 
@@ -73,6 +73,88 @@ export default function KasirCafePage() {
     fetchMenu();
   }, []);
 
+  // Format Rupiah
+  const formatRupiah = (val: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0,
+    }).format(val || 0);
+  };
+
+  // 📄 CETAK STRUK THERMAL POS CAFE (80mm) DENGAN JSPDF
+  const printThermalReceiptWithjsPDF = (order: any) => {
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [80, 150], // Ukuran Kertas Thermal Standar Kasir POS (80mm)
+    });
+
+    const printedAt = order.date || new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+    // Header Struk
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(11);
+    doc.text('EKSDI CAFE & RENTAL', 40, 8, { align: 'center' });
+    
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7);
+    doc.text('Jl. Padel No. 123, Tasikmalaya', 40, 12, { align: 'center' });
+    doc.text('WA / Telp: 089630041079', 40, 15, { align: 'center' });
+    doc.text('------------------------------------------', 40, 19, { align: 'center' });
+
+    // Info Transaksi
+    doc.setFontSize(8);
+    doc.text(`No. Order : ${order.orderNumber}`, 5, 24);
+    doc.text(`Tgl / Jam : ${printedAt}`, 5, 28);
+    doc.text(`Pemesan   : ${order.customerName}`, 5, 32);
+    doc.text('------------------------------------------', 40, 36, { align: 'center' });
+
+    // Header Tabel Items
+    doc.setFont('courier', 'bold');
+    doc.text('QTY  ITEM                   TOTAL', 5, 40);
+    doc.setFont('courier', 'normal');
+    doc.text('------------------------------------------', 40, 43, { align: 'center' });
+
+    let yPosition = 48;
+    order.items.forEach((item: any) => {
+      const itemName = item.menuItem.name.length > 18 
+        ? item.menuItem.name.substring(0, 18) + '..' 
+        : item.menuItem.name;
+      const qtyStr = `${item.quantity}x`.padEnd(5, ' ');
+      const priceStr = formatRupiah(item.subtotal).padStart(11, ' ');
+
+      doc.text(`${qtyStr}${itemName.padEnd(20, ' ')}${priceStr}`, 5, yPosition);
+      yPosition += 5;
+    });
+
+    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
+    yPosition += 5;
+
+    // Summary Total
+    doc.setFont('courier', 'bold');
+    doc.text(`TOTAL BAYAR : ${formatRupiah(order.totalAmount)}`, 5, yPosition);
+    yPosition += 4;
+    doc.setFont('courier', 'normal');
+    doc.text(`METODE BAYAR: ${order.paymentMethod.toUpperCase()}`, 5, yPosition);
+    yPosition += 4;
+    doc.text(`STATUS       : LUNAS (PAID)`, 5, yPosition);
+
+    // Footer Struk
+    yPosition += 6;
+    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
+    yPosition += 4;
+    doc.setFont('courier', 'bold');
+    doc.text('TERIMA KASIH', 40, yPosition, { align: 'center' });
+    yPosition += 4;
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7);
+    doc.text('Selamat Menikmati di Eksdi Padel!', 40, yPosition, { align: 'center' });
+
+    // Trigger Print Window
+    doc.autoPrint();
+    window.open(doc.output('bloburl'), '_blank');
+  };
+
   // Tambah Item ke Keranjang
   const handleAddToCart = (item: MenuItem) => {
     setCart((prevCart) => {
@@ -116,7 +198,7 @@ export default function KasirCafePage() {
   // Total Belanja
   const totalAmount = cart.reduce((acc, curr) => acc + curr.subtotal, 0);
 
-  // Process Checkout
+  // Process Checkout (Bisa Dikelola Seluruh User/Kasir/Owner)
   const handleCheckout = async () => {
     if (cart.length === 0) {
       alert('Keranjang belanja masih kosong!');
@@ -164,33 +246,29 @@ export default function KasirCafePage() {
     const { error: itemsError } = await supabase.from('pos_order_items').insert(orderItemsPayload);
 
     if (!itemsError) {
-      setCompletedOrder({
+      const newCompletedOrder = {
         orderNumber: orderNum,
         customerName,
         totalAmount,
         paymentMethod,
         items: [...cart],
         date: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-      });
+      };
+
+      setCompletedOrder(newCompletedOrder);
+
+      // Auto Print Struk saat Transaksi Selesai
+      printThermalReceiptWithjsPDF(newCompletedOrder);
 
       // Reset
       setCart([]);
       setCustomerName('');
-      fetchMenu(); // Refresh stok
+      fetchMenu();
     } else {
       alert('Gagal menyimpan detail item pesanan!');
     }
 
     setSubmitting(false);
-  };
-
-  // Format Rupiah
-  const formatRupiah = (val: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      maximumFractionDigits: 0,
-    }).format(val || 0);
   };
 
   // Filter Items
@@ -203,7 +281,7 @@ export default function KasirCafePage() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
       
-      {/* 🟢 SISI KIRI: KATALOG MENU (2 COLUMNS IN DESKTOP) */}
+      {/* 🟢 SISI KIRI: KATALOG MENU */}
       <div className="lg:col-span-2 space-y-4">
         
         {/* Header & Filter */}
@@ -314,7 +392,7 @@ export default function KasirCafePage() {
           {/* Atas Nama Pemesan */}
           <div className="mb-3">
             <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
-              Atas Nama Pemesan (Universal)
+              Atas Nama Pemesan
             </label>
             <div className="relative">
               <User className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
@@ -392,7 +470,7 @@ export default function KasirCafePage() {
             <span className="text-base text-[#ccff00]">{formatRupiah(totalAmount)}</span>
           </div>
 
-          {/* Submit Button */}
+          {/* Submit Button (All User / Kasir / Owner) */}
           <button
             onClick={handleCheckout}
             disabled={submitting || cart.length === 0}
@@ -405,18 +483,18 @@ export default function KasirCafePage() {
 
       </div>
 
-      {/* ------------------ 📱 MODAL STRUK SUKSES ------------------ */}
+      {/* ------------------ 📱 MODAL STRUK SUKSES & CETAK ------------------ */}
       {completedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-6 shadow-2xl relative text-center font-mono">
+          <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-6 shadow-2xl relative text-center">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto mb-3">
               <Receipt className="w-6 h-6" />
             </div>
 
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">EKSDI PADEL CAFE</h3>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">EKSDI CAFE & RENTAL</h3>
             <p className="text-[10px] text-zinc-400 mt-0.5">Struk Transaksi Selesai</p>
 
-            <div className="my-4 p-3 bg-black/40 rounded-2xl border border-white/10 text-left text-xs space-y-2 font-sans">
+            <div className="my-4 p-3 bg-black/40 rounded-2xl border border-white/10 text-left text-xs space-y-2">
               <div className="flex justify-between text-zinc-400 text-[10px]">
                 <span>No: {completedOrder.orderNumber}</span>
                 <span>{completedOrder.date}</span>
@@ -440,12 +518,23 @@ export default function KasirCafePage() {
               </div>
             </div>
 
-            <button
-              onClick={() => setCompletedOrder(null)}
-              className="w-full bg-[#ccff00] text-zinc-950 font-bold py-2.5 rounded-xl text-xs font-sans"
-            >
-              TRANSAKSI BARU
-            </button>
+            {/* Tombol Cetak Struk POS & Transaksi Baru */}
+            <div className="space-y-2">
+              <button
+                onClick={() => printThermalReceiptWithjsPDF(completedOrder)}
+                className="w-full bg-[#ccff00] text-zinc-950 font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(204,255,0,0.2)]"
+              >
+                <Printer className="w-4 h-4" /> CETAK STRUK POS (JSPDF)
+              </button>
+
+              <button
+                onClick={() => setCompletedOrder(null)}
+                className="w-full bg-white/5 hover:bg-white/10 text-zinc-300 font-bold py-2.5 rounded-xl text-xs border border-white/10"
+              >
+                TRANSAKSI BARU
+              </button>
+            </div>
+
           </div>
         </div>
       )}
