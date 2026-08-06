@@ -21,7 +21,10 @@ import {
   HelpCircle,
   ShieldCheck,
   Award,
-  Zap
+  Zap,
+  Menu,
+  Footprints,
+  CookieIcon
 } from 'lucide-react';
 
 interface Court extends CourtPricing {
@@ -368,6 +371,13 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
       subtitle: 'Petunjuk arah ke Eksdi Padel Courts',
       icon: <MapPin className="w-5 h-5 text-rose-500" />,
       href: 'https://share.google/BoMBuKVnjijSLVPh6',
+    },
+    {
+      id: 'menu',
+      title: 'Menu',
+      subtitle: 'Lihat daftar menu makanan & minuman',
+      icon: <CookieIcon className="w-5 h-5 text-amber-500" />,
+      href: 'https://drive.google.com/drive/folders/1iB1-J2mxS1aZPw3fqEXQB8Ck4fu3JkGt',
     },
   ];
 
