@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import jsPDF from 'jspdf';
 import { 
   Coffee, 
   Search, 
@@ -11,8 +12,16 @@ import {
   RefreshCw,
   Clock,
   DollarSign,
-  AlertCircle
+  Printer,
+  Receipt
 } from 'lucide-react';
+
+interface PosOrderItem {
+  item_name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+}
 
 interface PosOrder {
   id: string;
@@ -23,12 +32,7 @@ interface PosOrder {
   payment_method: string;
   notes?: string;
   created_at: string;
-  pos_order_items?: {
-    item_name: string;
-    quantity: number;
-    price: number;
-    subtotal: number;
-  }[];
+  pos_order_items?: PosOrderItem[];
 }
 
 export default function KasirCafePage() {
@@ -67,20 +71,6 @@ export default function KasirCafePage() {
     };
   }, []);
 
-  // Tandai Pesanan Lunas
-  const handleMarkAsPaid = async (orderId: string) => {
-    const { error } = await supabase
-      .from('pos_orders')
-      .update({ payment_status: 'paid' })
-      .eq('id', orderId);
-
-    if (!error) {
-      fetchOrders();
-    } else {
-      alert('Gagal mengupdate status: ' + error.message);
-    }
-  };
-
   // Format Rupiah
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -88,6 +78,110 @@ export default function KasirCafePage() {
       currency: 'IDR',
       maximumFractionDigits: 0,
     }).format(val || 0);
+  };
+
+  // 📄 PRINT STRUK THERMAL POS CAFE (80mm) DENGAN JSPDF
+  const printThermalReceiptWithjsPDF = (order: PosOrder) => {
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [80, 150], // Ukuran Kertas POS Thermal (80mm)
+    });
+
+    const printedAt = new Date(order.created_at).toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const dateFormatted = new Date(order.created_at).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+
+    // Header Struk
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(11);
+    doc.text('EKSDI CAFE & RENTAL', 40, 8, { align: 'center' });
+    
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7);
+    doc.text('Jl. Padel No. 123, Tasikmalaya', 40, 12, { align: 'center' });
+    doc.text('WA / Telp: 089630041079', 40, 15, { align: 'center' });
+    doc.text('------------------------------------------', 40, 19, { align: 'center' });
+
+    // Info Transaksi
+    doc.setFontSize(8);
+    doc.text(`No. Order : ${order.order_number}`, 5, 24);
+    doc.text(`Tanggal   : ${dateFormatted} ${printedAt}`, 5, 28);
+    doc.text(`Pemesan   : ${order.customer_name}`, 5, 32);
+    doc.text('------------------------------------------', 40, 36, { align: 'center' });
+
+    // Header Tabel Items
+    doc.setFont('courier', 'bold');
+    doc.text('QTY  ITEM                   TOTAL', 5, 40);
+    doc.setFont('courier', 'normal');
+    doc.text('------------------------------------------', 40, 43, { align: 'center' });
+
+    let yPosition = 48;
+    if (order.pos_order_items && order.pos_order_items.length > 0) {
+      order.pos_order_items.forEach((item) => {
+        const itemName = item.item_name.length > 18 
+          ? item.item_name.substring(0, 18) + '..' 
+          : item.item_name;
+        const qtyStr = `${item.quantity}x`.padEnd(5, ' ');
+        const priceStr = formatRupiah(item.subtotal).padStart(11, ' ');
+
+        doc.text(`${qtyStr}${itemName.padEnd(20, ' ')}${priceStr}`, 5, yPosition);
+        yPosition += 5;
+      });
+    }
+
+    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
+    yPosition += 5;
+
+    // Summary Total
+    doc.setFont('courier', 'bold');
+    doc.text(`TOTAL BAYAR : ${formatRupiah(order.total_amount)}`, 5, yPosition);
+    yPosition += 4;
+    doc.setFont('courier', 'normal');
+    doc.text(`METODE BAYAR: ${(order.payment_method || 'CASH').toUpperCase()}`, 5, yPosition);
+    yPosition += 4;
+    doc.text(`STATUS       : ${order.payment_status === 'paid' ? 'LUNAS (PAID)' : 'BELUM LUNAS'}`, 5, yPosition);
+
+    if (order.notes) {
+      yPosition += 4;
+      doc.text(`Catatan     : ${order.notes}`, 5, yPosition);
+    }
+
+    // Footer Struk
+    yPosition += 6;
+    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
+    yPosition += 4;
+    doc.setFont('courier', 'bold');
+    doc.text('TERIMA KASIH', 40, yPosition, { align: 'center' });
+    yPosition += 4;
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7);
+    doc.text('Selamat Menikmati di Eksdi Padel!', 40, yPosition, { align: 'center' });
+
+    // Auto Print
+    doc.autoPrint();
+    window.open(doc.output('bloburl'), '_blank');
+  };
+
+  // Tandai Pesanan Lunas (Bisa Untuk Semua User)
+  const handleMarkAsPaid = async (order: PosOrder) => {
+    const { error } = await supabase
+      .from('pos_orders')
+      .update({ payment_status: 'paid' })
+      .eq('id', order.id);
+
+    if (!error) {
+      // Print Struk jsPDF Secara Otomatis
+      printThermalReceiptWithjsPDF({ ...order, payment_status: 'paid' });
+      fetchOrders();
+    } else {
+      alert('Gagal mengupdate status: ' + error.message);
+    }
   };
 
   // Filter Orders
@@ -215,26 +309,37 @@ export default function KasirCafePage() {
                 </div>
               </div>
 
-              {/* Total & Action Button */}
-              <div className="pt-2 border-t border-white/10 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] text-zinc-400 block">Total Tagihan:</span>
-                  <span className="text-base font-black text-[#ccff00]">{formatRupiah(o.total_amount)}</span>
+              {/* Total & Action Button (All User) */}
+              <div className="pt-3 border-t border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block">Total Tagihan:</span>
+                    <span className="text-base font-black text-[#ccff00]">{formatRupiah(o.total_amount)}</span>
+                  </div>
+
+                  {o.payment_status === 'pending' ? (
+                    <button
+                      onClick={() => handleMarkAsPaid(o)}
+                      className="bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)]"
+                    >
+                      <DollarSign className="w-4 h-4" />
+                      TANDAI LUNAS
+                    </button>
+                  ) : (
+                    <span className="text-xs text-emerald-400 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-4 h-4" /> Selesai
+                    </span>
+                  )}
                 </div>
 
-                {o.payment_status === 'pending' ? (
-                  <button
-                    onClick={() => handleMarkAsPaid(o.id)}
-                    className="bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)]"
-                  >
-                    <DollarSign className="w-4 h-4" />
-                    TANDAI LUNAS
-                  </button>
-                ) : (
-                  <span className="text-xs text-emerald-400 font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-4 h-4" /> Selesai
-                  </span>
-                )}
+                {/* Tombol Cetak Struk jsPDF */}
+                <button
+                  onClick={() => printThermalReceiptWithjsPDF(o)}
+                  className="w-full bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all"
+                >
+                  <Printer className="w-3.5 h-3.5 text-[#ccff00]" />
+                  CETAK STRUK POS
+                </button>
               </div>
 
             </div>

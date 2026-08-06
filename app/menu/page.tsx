@@ -13,9 +13,9 @@ import {
   Loader2, 
   User, 
   MapPin, 
-  FileText,
   Search,
-  Check
+  Check,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface MenuItem {
@@ -124,7 +124,7 @@ export default function PublicSelfOrderPage() {
           order_number: orderNum,
           customer_name: fullCustomerName,
           total_amount: totalAmount,
-          payment_status: 'pending', // Pending sampai dibayar di kasir
+          payment_status: 'pending',
           payment_method: 'cash',
           notes: orderNotes || null,
         },
@@ -211,7 +211,7 @@ export default function PublicSelfOrderPage() {
             <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
             <input
               type="text"
-              placeholder="Cari kopi, pasta, fries..."
+              placeholder="Cari kopi, snack, minuman..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
@@ -239,55 +239,93 @@ export default function PublicSelfOrderPage() {
           </div>
         </div>
 
-        {/* LIST MENU ITEM GRID */}
+        {/* LIST MENU ITEM GRID 2 KOLOM (SEPERTI FOTO ACUAN) */}
         {loading ? (
           <div className="text-center py-20 text-zinc-400 text-xs flex flex-col items-center gap-2">
             <Loader2 className="w-6 h-6 text-[#ccff00] animate-spin" />
             <span>Memuat Buku Menu Eksdi Koffie...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-2 gap-3.5">
             {filteredMenu.map((item) => {
               const inCart = cart.find((c) => c.menuItem.id === item.id);
               return (
                 <div
                   key={item.id}
-                  className="bg-[#141e1b] border border-white/10 rounded-2xl p-3.5 flex items-center justify-between gap-3 hover:border-white/20 transition-all"
+                  className="bg-[#141e1b] border border-white/10 rounded-2xl p-2.5 flex flex-col justify-between hover:border-white/20 transition-all shadow-lg group"
                 >
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[9px] font-bold uppercase text-[#ccff00] bg-[#ccff00]/10 px-2 py-0.5 rounded-md">
+                  {/* FOTO MENU / PLACEHOLDER KOSONG */}
+                  <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/5 mb-2.5 flex items-center justify-center">
+                    {item.image_url ? (
+                      <img
+                        src={item.image_url}
+                        alt={item.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      /* Placeholder Jika Foto Belum Ada */
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-zinc-600 p-2 text-center">
+                        <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-zinc-500">
+                          {item.category === 'minuman' ? (
+                            <Coffee className="w-5 h-5 text-amber-500/60" />
+                          ) : (
+                            <UtensilsCrossed className="w-5 h-5 text-emerald-500/60" />
+                          )}
+                        </div>
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+                          Eksdi Koffie
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Badge Kategori */}
+                    <span className="absolute top-2 left-2 text-[8px] font-extrabold uppercase text-[#ccff00] bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-md border border-[#ccff00]/20">
                       {item.category}
                     </span>
-                    <h3 className="text-xs font-bold text-white mt-1 truncate">{item.name}</h3>
-                    <p className="text-xs font-black text-[#ccff00] mt-0.5">{formatRupiah(item.price)}</p>
                   </div>
 
-                  {inCart ? (
-                    <div className="flex items-center gap-2 bg-[#ccff00]/10 border border-[#ccff00]/30 rounded-xl p-1">
+                  {/* NAMA & HARGA MENU */}
+                  <div className="px-1 mb-2">
+                    <h3 className="text-xs font-bold text-white line-clamp-1 group-hover:text-[#ccff00] transition-colors">
+                      {item.name}
+                    </h3>
+                    <p className="text-xs font-black text-[#ccff00] mt-0.5">
+                      {formatRupiah(item.price)}
+                    </p>
+                  </div>
+
+                  {/* BUTTON COUNTER / PESAN (MIRIP GAMBAR ACUAN) */}
+                  <div>
+                    {inCart ? (
+                      <div className="flex items-center justify-between bg-white/5 border border-[#ccff00]/30 rounded-xl p-1">
+                        <button
+                          onClick={() => handleUpdateQty(item.id, -1)}
+                          className="w-7 h-7 rounded-lg bg-white/10 hover:bg-rose-500/20 text-white hover:text-rose-400 flex items-center justify-center transition-all"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="text-xs font-black text-[#ccff00] px-1">
+                          {inCart.quantity}
+                        </span>
+
+                        <button
+                          onClick={() => handleUpdateQty(item.id, 1)}
+                          className="w-7 h-7 rounded-lg bg-[#ccff00] text-zinc-950 flex items-center justify-center font-bold hover:bg-[#b8e600] transition-all"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleUpdateQty(item.id, -1)}
-                        className="w-7 h-7 rounded-lg bg-[#ccff00] text-zinc-950 flex items-center justify-center font-bold"
+                        onClick={() => handleAddToCart(item)}
+                        className="w-full bg-white/5 hover:bg-[#ccff00] hover:text-zinc-950 text-white border border-white/10 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1 transition-all"
                       >
-                        <Minus className="w-3.5 h-3.5" />
+                        <Plus className="w-3.5 h-3.5" /> Pesan
                       </button>
-                      <span className="text-xs font-black text-[#ccff00] w-5 text-center">
-                        {inCart.quantity}
-                      </span>
-                      <button
-                        onClick={() => handleUpdateQty(item.id, 1)}
-                        className="w-7 h-7 rounded-lg bg-[#ccff00] text-zinc-950 flex items-center justify-center font-bold"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => handleAddToCart(item)}
-                      className="bg-white/5 hover:bg-[#ccff00] hover:text-zinc-950 text-white border border-white/10 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1 transition-all shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Pesan
-                    </button>
-                  )}
+                    )}
+                  </div>
+
                 </div>
               );
             })}
