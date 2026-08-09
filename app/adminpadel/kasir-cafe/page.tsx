@@ -93,17 +93,17 @@ export default function KasirCafePage() {
 
     // Header Struk
     doc.setFont('courier', 'bold');
-    doc.setFontSize(11);
+    doc.setFontSize(17);
     doc.text('EKSDI CAFE & RENTAL', 40, 8, { align: 'center' });
     
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(10);
     doc.text('Jl. Padel No. 123, Tasikmalaya', 40, 12, { align: 'center' });
     doc.text('WA / Telp: 089630041079', 40, 15, { align: 'center' });
     doc.text('------------------------------------------', 40, 19, { align: 'center' });
 
     // Info Transaksi
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.text(`No. Order : ${order.orderNumber}`, 5, 24);
     doc.text(`Tgl / Jam : ${printedAt}`, 5, 28);
     doc.text(`Pemesan   : ${order.customerName}`, 5, 32);
@@ -147,7 +147,7 @@ export default function KasirCafePage() {
     doc.text('TERIMA KASIH', 40, yPosition, { align: 'center' });
     yPosition += 4;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(10);
     doc.text('Selamat Menikmati di Eksdi Padel!', 40, yPosition, { align: 'center' });
 
     // Trigger Print Window
