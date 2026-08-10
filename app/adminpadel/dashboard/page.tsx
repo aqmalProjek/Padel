@@ -28,7 +28,8 @@ import {
   Receipt,
   Mail,
   Calendar as CalendarIcon,
-  BellRing
+  BellRing,
+  Coins
 } from 'lucide-react';
 
 interface Booking {
@@ -43,6 +44,8 @@ interface Booking {
   duration: number;
   total_price: number;
   dp_amount?: number;
+  cash_received?: number;
+  cash_change?: number;
   payment_status: 'pending' | 'paid_cashier' | 'paid_dp' | 'cancelled';
   payment_method: 'cash' | 'qris' | 'transfer' | 'cashier';
   payment_proof_url?: string;
@@ -67,7 +70,7 @@ interface ExistingBooking {
 
 export default function DashboardKasirPage() {
   const { role, loading: authLoading } = useAuth();
-  console.log('role',role, 'authLoading', authLoading);
+  console.log('role', role, 'authLoading', authLoading);
   
   const ownerWA = "628132314141"; // WA Owner untuk Notif Kasir
 
@@ -98,18 +101,20 @@ export default function DashboardKasirPage() {
     customer_phone: '',
     customer_email: '',
     payment_status: 'paid_cashier',
-    payment_method: 'cash',
+    payment_method: 'cash' as 'cash' | 'qris' | 'transfer',
     dp_amount: 50000,
+    cash_received: '' as number | '',
   });
 
-  // State Modal Bayar / Pelunasan (Khusus Owner)
+  // State Modal Bayar / Pelunasan (Khusus Owner / Kasir)
   const [payModalBooking, setPayModalBooking] = useState<Booking | null>(null);
   const [selectedPayMethod, setSelectedPayMethod] = useState<'cash' | 'qris' | 'transfer'>('cash');
   const [dpInputAmount, setDpInputAmount] = useState<number>(50000);
+  const [payCashReceived, setPayCashReceived] = useState<number | ''>('');
   const [isDpProcess, setIsDpProcess] = useState(false);
   const [submittingPay, setSubmittingPay] = useState(false);
 
-  // State Modal Notif Owner & Upload Bukti Foto (Kasir / Owner)
+  // State Modal Notif Owner & Upload Bukti Foto
   const [notifModalBooking, setNotifModalBooking] = useState<Booking | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -143,61 +148,97 @@ export default function DashboardKasirPage() {
   };
 
   // 📄 PRINT STRUK THERMAL POS DENGAN JSPDF
-  const printThermalReceiptWithjsPDF = (bookingData: Booking, isDp: boolean, dpPaid: number, payMethod: string) => {
+  const printThermalReceiptWithjsPDF = (
+    bookingData: Booking, 
+    isDp: boolean, 
+    dpPaid: number, 
+    payMethod: string,
+    cashReceivedVal?: number,
+    cashChangeVal?: number
+  ) => {
+    const baseHeight = 135;
     const doc = new jsPDF({
       unit: 'mm',
-      format: [80, 140], // Ukuran Kertas Thermal Standar Kasir (80mm x 140mm)
+      format: [72, baseHeight],
     });
 
     const orderNum = `BK-${bookingData.id.slice(0, 6).toUpperCase()}`;
     const printedAt = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
+    let y = 8;
+
     // Design Header Struk
     doc.setFont('courier', 'bold');
-    doc.setFontSize(11);
-    doc.text('EKSDI PADEL COURTS', 40, 8, { align: 'center' });
+    doc.setFontSize(13);
+    doc.text('EKSDI PADEL COURTS', 36, y, { align: 'center' });
     
+    y += 5;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Jl. Padel No. 123, Bandung', 40, 12, { align: 'center' });
-    doc.text('Telp / WA: 089630041079', 40, 15, { align: 'center' });
-    doc.text('------------------------------------------', 40, 19, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text('Jl. Simpang Nagrog, Tasikmalaya', 36, y, { align: 'center' });
+    y += 4;
+    doc.text('Telp / WA: 08132314141', 36, y, { align: 'center' });
+    y += 4;
+    doc.text('=================================', 36, y, { align: 'center' });
 
     // Details Booking
-    doc.setFontSize(8);
-    doc.text(`No. Order : ${orderNum}`, 5, 24);
-    doc.text(`Tgl Cetak : ${printedAt}`, 5, 28);
-    doc.text(`Pemesan   : ${bookingData.customer_name}`, 5, 32);
-    doc.text('------------------------------------------', 40, 36, { align: 'center' });
+    y += 5;
+    doc.setFontSize(9);
+    doc.text(`No. Order : ${orderNum}`, 3, y);
+    y += 4.5;
+    doc.text(`Tgl Cetak : ${printedAt}`, 3, y);
+    y += 4.5;
+    doc.text(`Pemesan   : ${bookingData.customer_name}`, 3, y);
+    y += 4;
+    doc.text('---------------------------------', 36, y, { align: 'center' });
 
+    y += 5;
     doc.setFont('courier', 'bold');
-    doc.text(`${bookingData.courts?.name || 'Lapangan Padel'}`, 5, 41);
+    doc.text(`${bookingData.courts?.name || 'Lapangan Padel'}`, 3, y);
+    y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.text(`Tanggal   : ${bookingData.booking_date}`, 5, 45);
-    doc.text(`Jam Main  : ${bookingData.start_time.slice(0, 5)} - ${bookingData.end_time.slice(0, 5)} (${bookingData.duration} Jam)`, 5, 49);
-    doc.text('------------------------------------------', 40, 53, { align: 'center' });
+    doc.text(`Tanggal   : ${bookingData.booking_date}`, 3, y);
+    y += 4.5;
+    doc.text(`Jam Main  : ${bookingData.start_time.slice(0, 5)} - ${bookingData.end_time.slice(0, 5)} (${bookingData.duration} Jam)`, 3, y);
+    y += 4;
+    doc.text('---------------------------------', 36, y, { align: 'center' });
 
     // Summary Pembayaran
-    doc.text(`Total Tagihan : ${formatRupiah(bookingData.total_price)}`, 5, 58);
-    doc.text(`Metode Bayar  : ${payMethod.toUpperCase()}`, 5, 62);
+    y += 5;
+    doc.text(`Total Tagihan : ${formatRupiah(bookingData.total_price)}`, 3, y);
+    y += 4.5;
+    doc.text(`Metode Bayar  : ${payMethod.toUpperCase()}`, 3, y);
+    
+    if (payMethod === 'cash' && typeof cashReceivedVal === 'number' && cashReceivedVal > 0) {
+      y += 4.5;
+      doc.text(`Uang Diterima : ${formatRupiah(cashReceivedVal)}`, 3, y);
+      y += 4.5;
+      doc.text(`Kembalian     : ${formatRupiah(cashChangeVal || 0)}`, 3, y);
+    }
+
+    y += 4.5;
     doc.setFont('courier', 'bold');
-    doc.text(`Status Bayar  : ${isDp ? 'DP PAID' : 'LUNAS (PELUNASAN)'}`, 5, 66);
+    doc.text(`Status Bayar  : ${isDp ? 'DP PAID' : 'LUNAS (PAID)'}`, 3, y);
 
     if (isDp) {
+      y += 4.5;
       doc.setFont('courier', 'normal');
-      doc.text(`Nominal DP    : ${formatRupiah(dpPaid)}`, 5, 70);
-      doc.text(`Sisa Wajib    : ${formatRupiah(bookingData.total_price - dpPaid)}`, 5, 74);
+      doc.text(`Nominal DP    : ${formatRupiah(dpPaid)}`, 3, y);
+      y += 4.5;
+      doc.text(`Sisa Wajib    : ${formatRupiah(bookingData.total_price - dpPaid)}`, 3, y);
     }
 
     // Footer Struk
-    doc.setFont('courier', 'normal');
-    doc.text('------------------------------------------', 40, 80, { align: 'center' });
+    y += 6;
+    doc.text('=================================', 36, y, { align: 'center' });
+    y += 5;
     doc.setFont('courier', 'bold');
-    doc.setFontSize(8);
-    doc.text('TERIMA KASIH', 40, 85, { align: 'center' });
+    doc.setFontSize(10);
+    doc.text('TERIMA KASIH', 36, y, { align: 'center' });
+    y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Selamat Bermain di Eksdi Padel!', 40, 89, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text('Selamat Bermain di Eksdi Padel!', 36, y, { align: 'center' });
 
     // Auto Cetak / Buka PDF di Windows Baru
     doc.autoPrint();
@@ -391,11 +432,25 @@ export default function DashboardKasirPage() {
   const manualHourlyRate = (manualSelectedTime && manualSelectedCourt) ? getHourlyRate(manualSelectedTime, manualSelectedCourt) : 0;
   const manualTotalPrice = manualHourlyRate * manualDurationHours;
 
+  // Calculation untuk Modal Manual Bayar
+  const numManualCashReceived = typeof manualFormData.cash_received === 'number' ? manualFormData.cash_received : 0;
+  const targetManualPayAmount = manualFormData.payment_status === 'paid_dp' ? manualFormData.dp_amount : manualTotalPrice;
+  const manualCashChange = manualFormData.payment_method === 'cash' ? Math.max(0, numManualCashReceived - targetManualPayAmount) : 0;
+
   // Submit Manual Booking (Walk-in)
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualDate || !manualSelectedTime || !manualFormData.customer_name || !manualFormData.customer_phone) {
       alert('Mohon pilih jam dan lengkapi Nama serta No. HP!');
+      return;
+    }
+
+    if (
+      manualFormData.payment_method === 'cash' && 
+      manualFormData.payment_status !== 'pending' && 
+      numManualCashReceived < targetManualPayAmount
+    ) {
+      alert('Uang yang dibayarkan masih kurang!');
       return;
     }
 
@@ -424,6 +479,8 @@ export default function DashboardKasirPage() {
         end_time: formattedEndTime,
         total_price: manualTotalPrice,
         dp_amount: manualFormData.payment_status === 'paid_dp' ? manualFormData.dp_amount : 0,
+        cash_received: manualFormData.payment_method === 'cash' ? numManualCashReceived : targetManualPayAmount,
+        cash_change: manualFormData.payment_method === 'cash' ? manualCashChange : 0,
         payment_status: manualFormData.payment_status,
         payment_method: manualFormData.payment_method,
       },
@@ -439,6 +496,7 @@ export default function DashboardKasirPage() {
         payment_status: 'paid_cashier',
         payment_method: 'cash',
         dp_amount: 50000,
+        cash_received: '',
       });
       fetchBookings();
     } else {
@@ -447,9 +505,21 @@ export default function DashboardKasirPage() {
     setSubmittingManual(false);
   };
 
-  // 👑 EKSEKUSI PEMBAYARAN KASIR / DP (KHUSUS ROLE OWNER)
+  // Calculation untuk Modal Bayar / Pelunasan
+  const numPayCashReceived = typeof payCashReceived === 'number' ? payCashReceived : 0;
+  const targetPayAmount = payModalBooking 
+    ? (isDpProcess ? dpInputAmount : payModalBooking.total_price - (payModalBooking.dp_amount || 0))
+    : 0;
+  const payCashChange = selectedPayMethod === 'cash' ? Math.max(0, numPayCashReceived - targetPayAmount) : 0;
+
+  // 👑 EKSEKUSI PEMBAYARAN KASIR / DP
   const handleConfirmPayment = async () => {
     if (!payModalBooking) return;
+
+    if (selectedPayMethod === 'cash' && numPayCashReceived < targetPayAmount) {
+      alert('Uang yang diterima masih kurang dari tagihan!');
+      return;
+    }
 
     setSubmittingPay(true);
     const updatePayload = isDpProcess
@@ -457,10 +527,14 @@ export default function DashboardKasirPage() {
           payment_status: 'paid_dp',
           payment_method: selectedPayMethod,
           dp_amount: dpInputAmount,
+          cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : dpInputAmount,
+          cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
         }
       : {
           payment_status: 'paid_cashier',
           payment_method: selectedPayMethod,
+          cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : targetPayAmount,
+          cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
         };
 
     const { error } = await supabase
@@ -470,9 +544,17 @@ export default function DashboardKasirPage() {
 
     if (!error) {
       // Print Struk jsPDF Secara Otomatis
-      printThermalReceiptWithjsPDF(payModalBooking, isDpProcess, dpInputAmount, selectedPayMethod);
+      printThermalReceiptWithjsPDF(
+        payModalBooking, 
+        isDpProcess, 
+        dpInputAmount, 
+        selectedPayMethod,
+        selectedPayMethod === 'cash' ? numPayCashReceived : targetPayAmount,
+        selectedPayMethod === 'cash' ? payCashChange : 0
+      );
 
       setPayModalBooking(null);
+      setPayCashReceived('');
       fetchBookings();
     } else {
       alert('Gagal memproses pembayaran: ' + error.message);
@@ -517,7 +599,6 @@ export default function DashboardKasirPage() {
     }
 
     const isDp = notifModalBooking.payment_status === 'pending';
-    const reqType = isDp ? 'REQUEST ACC BAYAR DP' : 'REQUEST ACC PELUNASAN';
 
     const message = 
 `*🔔 NOTIFIKASI KASIR -> OWNER*
@@ -544,7 +625,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
     setSelectedFile(null);
   };
 
-  // Handle Cancel Booking (Khusus Owner)
+  // Handle Cancel Booking
   const handleCancelBooking = async (id: string, name: string) => {
     if (confirm(`Apakah kamu yakin ingin MEMBATALKAN booking atas nama ${name}?`)) {
       const { error } = await supabase
@@ -718,13 +799,12 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                   )}
                 </div>
 
-                {/* 🔒 LOGIKA HAK AKSES TOMBOL (OWNER VS KASIR) */}
+                {/* 🔒 LOGIKA HAK AKSES TOMBOL */}
                 {b.payment_status === 'cancelled' ? (
                   <span className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold">
                     Dibatalkan
                   </span>
                 ) : role === 'kasir' ? (
-                  /* 🛑 JIKA KASIR: Hanya Tampilkan Tombol REQUEST NOTIF OWNER + Badge Status */
                   <div className="flex items-center gap-2">
                     {b.payment_status !== 'paid_cashier' && (
                       <button
@@ -753,7 +833,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                     </span>
                   </div>
                 ) : (
-                  /* 👑 JIKA OWNER: Bisa Klik Tombol Bayar Kasir / DP / Print / Cancel */
                   <div>
                     {b.payment_status === 'paid_cashier' ? (
                       <div className="flex items-center gap-2">
@@ -764,7 +843,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                         
                         {/* Print Cetak Ulang Struk via jsPDF */}
                         <button
-                          onClick={() => printThermalReceiptWithjsPDF(b, false, 0, b.payment_method)}
+                          onClick={() => printThermalReceiptWithjsPDF(b, false, 0, b.payment_method, b.cash_received, b.cash_change)}
                           className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-all"
                           title="Cetak Ulang Struk"
                         >
@@ -786,6 +865,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           onClick={() => {
                             setPayModalBooking(b);
                             setIsDpProcess(false);
+                            setPayCashReceived('');
                           }}
                           className="bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(204,255,0,0.15)]"
                         >
@@ -799,6 +879,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                             onClick={() => {
                               setPayModalBooking(b);
                               setIsDpProcess(true);
+                              setPayCashReceived('');
                             }}
                             className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 font-bold px-3 py-2 rounded-xl text-xs transition-all"
                           >
@@ -824,7 +905,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
         )}
       </div>
 
-      {/* 👑 MODAL CONFIRM PEMBAYARAN & CETAK STRUK (KHUSUS ROLE OWNER) */}
+      {/* 👑 MODAL CONFIRM PEMBAYARAN & CETAK STRUK */}
       {payModalBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl">
@@ -843,7 +924,10 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
               <div className="p-3 bg-white/5 rounded-2xl border border-white/5 text-xs space-y-1">
                 <p className="text-zinc-400">Pemesan: <strong className="text-white">{payModalBooking.customer_name}</strong></p>
                 <p className="text-zinc-400">Lapangan: <strong className="text-[#ccff00]">{payModalBooking.courts?.name}</strong></p>
-                <p className="text-zinc-400">Total Tagihan: <strong className="text-white">{formatRupiah(payModalBooking.total_price)}</strong></p>
+                <p className="text-zinc-400">
+                  Tagihan {isDpProcess ? 'DP' : (payModalBooking.payment_status === 'paid_dp' ? 'Sisa Pelunasan' : 'Total')}:{' '}
+                  <strong className="text-white">{formatRupiah(targetPayAmount)}</strong>
+                </p>
               </div>
 
               {isDpProcess && (
@@ -878,10 +962,63 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                 </div>
               </div>
 
+              {/* 💵 INPUT TUNAI & KEMBALIAN (KHUSUS METODE CASH) */}
+              {selectedPayMethod === 'cash' && (
+                <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 space-y-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-300 mb-1 flex items-center justify-between">
+                      <span>Uang Diterima (Rp)</span>
+                      {numPayCashReceived > 0 && numPayCashReceived < targetPayAmount && (
+                        <span className="text-rose-400 text-[9px]">Uang Kurang!</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <Coins className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={payCashReceived}
+                        onChange={(e) => setPayCashReceived(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#ccff00]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preset Tombol Cepat */}
+                  <div className="grid grid-cols-4 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPayCashReceived(targetPayAmount)}
+                      className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-zinc-300"
+                    >
+                      Uang Pas
+                    </button>
+                    {[50000, 100000, 200000].map((nominal) => (
+                      <button
+                        key={nominal}
+                        type="button"
+                        onClick={() => setPayCashReceived(nominal)}
+                        className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-[#ccff00]"
+                      >
+                        {nominal / 1000}k
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Display Kembalian */}
+                  <div className="flex justify-between items-center text-xs pt-1 border-t border-white/10 font-bold">
+                    <span className="text-zinc-400">Kembalian:</span>
+                    <span className={payCashChange >= 0 && numPayCashReceived >= targetPayAmount ? 'text-emerald-400' : 'text-zinc-500'}>
+                      {formatRupiah(payCashChange)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={handleConfirmPayment}
-                disabled={submittingPay}
-                className="w-full bg-[#ccff00] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 mt-4 shadow-[0_0_15px_rgba(204,255,0,0.2)]"
+                disabled={submittingPay || (selectedPayMethod === 'cash' && numPayCashReceived < targetPayAmount)}
+                className="w-full bg-[#ccff00] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 mt-4 shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
               >
                 {submittingPay ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                 PROSES & PRINT STRUK (JSPDF)
@@ -892,7 +1029,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
         </div>
       )}
 
-      {/* 📲 MODAL UPLOAD BUKTI & NOTIF WA OWNER (KASIR / OWNER) */}
+      {/* 📲 MODAL UPLOAD BUKTI & NOTIF WA OWNER */}
       {notifModalBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl">
@@ -1198,6 +1335,59 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                     />
                   </div>
                 )}
+
+                {/* 💵 INPUT TUNAI & KEMBALIAN APABILA METODE TUNAI & STATUS BUKAN PENDING */}
+                {manualFormData.payment_method === 'cash' && manualFormData.payment_status !== 'pending' && (
+                  <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-300 mb-1 flex items-center justify-between">
+                        <span>Uang Diterima (Rp)</span>
+                        {numManualCashReceived > 0 && numManualCashReceived < targetManualPayAmount && (
+                          <span className="text-rose-400 text-[9px]">Uang Kurang!</span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <Coins className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={manualFormData.cash_received}
+                          onChange={(e) => setManualFormData({ ...manualFormData, cash_received: e.target.value === '' ? '' : Number(e.target.value) })}
+                          className="w-full bg-black/40 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#ccff00]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tombol Preset Cepat */}
+                    <div className="grid grid-cols-4 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setManualFormData({ ...manualFormData, cash_received: targetManualPayAmount })}
+                        className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-zinc-300"
+                      >
+                        Uang Pas
+                      </button>
+                      {[100000, 200000, 500000].map((nominal) => (
+                        <button
+                          key={nominal}
+                          type="button"
+                          onClick={() => setManualFormData({ ...manualFormData, cash_received: nominal })}
+                          className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-[#ccff00]"
+                        >
+                          {nominal / 1000}k
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Display Kembalian */}
+                    <div className="flex justify-between items-center text-xs pt-1 border-t border-white/10 font-bold">
+                      <span className="text-zinc-400">Kembalian:</span>
+                      <span className={manualCashChange >= 0 && numManualCashReceived >= targetManualPayAmount ? 'text-emerald-400' : 'text-zinc-500'}>
+                        {formatRupiah(manualCashChange)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* SUMMARY ALOKASI & TOTAL */}
@@ -1219,7 +1409,11 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
               {/* SUBMIT BUTTON */}
               <button
                 type="submit"
-                disabled={submittingManual || !manualSelectedTime}
+                disabled={
+                  submittingManual || 
+                  !manualSelectedTime || 
+                  (manualFormData.payment_method === 'cash' && manualFormData.payment_status !== 'pending' && numManualCashReceived < targetManualPayAmount)
+                }
                 className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
               >
                 {submittingManual ? (

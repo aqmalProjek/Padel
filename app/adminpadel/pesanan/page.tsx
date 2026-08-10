@@ -14,7 +14,12 @@ import {
   DollarSign,
   Printer,
   Receipt,
-  Trash2
+  Trash2,
+  X,
+  Coins,
+  Banknote,
+  QrCode,
+  CreditCard
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -30,6 +35,8 @@ interface PosOrder {
   order_number: string;
   customer_name: string;
   total_amount: number;
+  cash_received?: number;
+  cash_change?: number;
   payment_status: 'paid' | 'pending' | 'cancelled';
   payment_method: string;
   notes?: string;
@@ -39,11 +46,18 @@ interface PosOrder {
 
 export default function KasirCafePage() {
   const { role, loading: authLoading } = useAuth();
-    console.log('role',role, 'authLoading', authLoading);
+  console.log('role', role, 'authLoading', authLoading);
+
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
+
+  // Modal Pelunasan State
+  const [payModalOrder, setPayModalOrder] = useState<PosOrder | null>(null);
+  const [selectedPayMethod, setSelectedPayMethod] = useState<'cash' | 'qris' | 'transfer'>('cash');
+  const [payCashReceived, setPayCashReceived] = useState<number | ''>('');
+  const [submittingPay, setSubmittingPay] = useState(false);
 
   // Fetch Orders
   const fetchOrders = async () => {
@@ -62,7 +76,7 @@ export default function KasirCafePage() {
   useEffect(() => {
     fetchOrders();
 
-    // ⚡ Realtime Listener: Langsung bunyi/muncul jika ada pesanan scan dari HP pelanggan
+    // ⚡ Realtime Listener
     const channel = supabase
       .channel('pos-orders-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pos_orders' }, () => {
@@ -85,10 +99,14 @@ export default function KasirCafePage() {
   };
 
   // 📄 PRINT STRUK THERMAL POS CAFE (80mm) DENGAN JSPDF
-  const printThermalReceiptWithjsPDF = (order: PosOrder) => {
+  const printThermalReceiptWithjsPDF = (order: PosOrder, cashRec?: number, cashChg?: number) => {
+    const baseHeight = 135;
+    const itemHeight = (order.pos_order_items?.length || 0) * 5;
+    const dynamicHeight = baseHeight + itemHeight;
+
     const doc = new jsPDF({
       unit: 'mm',
-      format: [80, 150], // Ukuran Kertas POS Thermal (80mm)
+      format: [72, dynamicHeight],
     });
 
     const printedAt = new Date(order.created_at).toLocaleTimeString('id-ID', {
@@ -101,99 +119,150 @@ export default function KasirCafePage() {
       year: 'numeric',
     });
 
+    let y = 8;
+
     // Header Struk
     doc.setFont('courier', 'bold');
-    doc.setFontSize(11);
-    doc.text('EKSDI CAFE & RENTAL', 40, 8, { align: 'center' });
+    doc.setFontSize(13);
+    doc.text('EKSDI CAFE & RENTAL', 36, y, { align: 'center' });
     
+    y += 5;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Jl. Padel No. 123, Tasikmalaya', 40, 12, { align: 'center' });
-    doc.text('WA / Telp: 089630041079', 40, 15, { align: 'center' });
-    doc.text('------------------------------------------', 40, 19, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text('Jl. Simpang Nagrog, Tasikmalaya', 36, y, { align: 'center' });
+    y += 4;
+    doc.text('WA / Telp: 08132314141', 36, y, { align: 'center' });
+    y += 4;
+    doc.text('=================================', 36, y, { align: 'center' });
 
     // Info Transaksi
-    doc.setFontSize(8);
-    doc.text(`No. Order : ${order.order_number}`, 5, 24);
-    doc.text(`Tanggal   : ${dateFormatted} ${printedAt}`, 5, 28);
-    doc.text(`Pemesan   : ${order.customer_name}`, 5, 32);
-    doc.text('------------------------------------------', 40, 36, { align: 'center' });
+    y += 5;
+    doc.setFontSize(9);
+    doc.text(`No. Order : ${order.order_number}`, 3, y);
+    y += 4.5;
+    doc.text(`Tanggal   : ${dateFormatted} ${printedAt}`, 3, y);
+    y += 4.5;
+    doc.text(`Pemesan   : ${order.customer_name}`, 3, y);
+    y += 4;
+    doc.text('---------------------------------', 36, y, { align: 'center' });
 
     // Header Tabel Items
+    y += 5;
     doc.setFont('courier', 'bold');
-    doc.text('QTY  ITEM                   TOTAL', 5, 40);
+    doc.text('QTY  ITEM                   TOTAL', 3, y);
+    y += 4;
     doc.setFont('courier', 'normal');
-    doc.text('------------------------------------------', 40, 43, { align: 'center' });
+    doc.text('---------------------------------', 36, y, { align: 'center' });
 
-    let yPosition = 48;
+    y += 5;
     if (order.pos_order_items && order.pos_order_items.length > 0) {
       order.pos_order_items.forEach((item) => {
-        const itemName = item.item_name.length > 18 
-          ? item.item_name.substring(0, 18) + '..' 
+        const itemName = item.item_name.length > 16 
+          ? item.item_name.substring(0, 16) + '..' 
           : item.item_name;
         const qtyStr = `${item.quantity}x`.padEnd(5, ' ');
-        const priceStr = formatRupiah(item.subtotal).padStart(11, ' ');
+        const priceStr = formatRupiah(item.subtotal).padStart(12, ' ');
 
-        doc.text(`${qtyStr}${itemName.padEnd(20, ' ')}${priceStr}`, 5, yPosition);
-        yPosition += 5;
+        doc.text(`${qtyStr}${itemName.padEnd(17, ' ')}${priceStr}`, 3, y);
+        y += 5;
       });
     }
 
-    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
-    yPosition += 5;
+    y += 1;
+    doc.text('---------------------------------', 36, y, { align: 'center' });
+    y += 5;
 
     // Summary Total
     doc.setFont('courier', 'bold');
-    doc.text(`TOTAL BAYAR : ${formatRupiah(order.total_amount)}`, 5, yPosition);
-    yPosition += 4;
+    doc.setFontSize(10);
+    doc.text(`TOTAL BAYAR : ${formatRupiah(order.total_amount)}`, 3, y);
+    
+    y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.text(`METODE BAYAR: ${(order.payment_method || 'CASH').toUpperCase()}`, 5, yPosition);
-    yPosition += 4;
-    doc.text(`STATUS       : ${order.payment_status === 'paid' ? 'LUNAS (PAID)' : 'BELUM LUNAS'}`, 5, yPosition);
+    doc.setFontSize(9);
+    doc.text(`METODE BAYAR: ${(order.payment_method || 'CASH').toUpperCase()}`, 3, y);
+
+    const actualCashReceived = cashRec ?? order.cash_received;
+    const actualCashChange = cashChg ?? order.cash_change;
+
+    if (order.payment_method === 'cash' && typeof actualCashReceived === 'number' && actualCashReceived > 0) {
+      y += 4.5;
+      doc.text(`UANG DITERIMA: ${formatRupiah(actualCashReceived)}`, 3, y);
+      y += 4.5;
+      doc.text(`KEMBALIAN    : ${formatRupiah(actualCashChange || 0)}`, 3, y);
+    }
+
+    y += 4.5;
+    doc.text(`STATUS       : ${order.payment_status === 'paid' ? 'LUNAS (PAID)' : 'BELUM LUNAS'}`, 3, y);
 
     if (order.notes) {
-      yPosition += 4;
-      doc.text(`Catatan     : ${order.notes}`, 5, yPosition);
+      y += 4.5;
+      doc.text(`Catatan     : ${order.notes}`, 3, y);
     }
 
     // Footer Struk
-    yPosition += 6;
-    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
-    yPosition += 4;
+    y += 6;
+    doc.text('=================================', 36, y, { align: 'center' });
+    y += 5;
     doc.setFont('courier', 'bold');
-    doc.text('TERIMA KASIH', 40, yPosition, { align: 'center' });
-    yPosition += 4;
+    doc.setFontSize(10);
+    doc.text('TERIMA KASIH', 36, y, { align: 'center' });
+    y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Selamat Menikmati di Eksdi Padel!', 40, yPosition, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text('Selamat Menikmati di Eksdi Padel!', 36, y, { align: 'center' });
 
     // Auto Print
     doc.autoPrint();
     window.open(doc.output('bloburl'), '_blank');
   };
 
-  // Tandai Pesanan Lunas
-  const handleMarkAsPaid = async (order: PosOrder) => {
+  // Kalkulasi Kembalian Modal Pelunasan
+  const numPayCashReceived = typeof payCashReceived === 'number' ? payCashReceived : 0;
+  const payCashChange = payModalOrder && selectedPayMethod === 'cash' 
+    ? Math.max(0, numPayCashReceived - payModalOrder.total_amount) 
+    : 0;
+
+  // Process Mark As Paid via Modal
+  const handleConfirmPayModal = async () => {
+    if (!payModalOrder) return;
+
+    if (selectedPayMethod === 'cash' && numPayCashReceived < payModalOrder.total_amount) {
+      alert('Uang yang dibayarkan masih kurang!');
+      return;
+    }
+
+    setSubmittingPay(true);
     const { error } = await supabase
       .from('pos_orders')
-      .update({ payment_status: 'paid' })
-      .eq('id', order.id);
+      .update({
+        payment_status: 'paid',
+        payment_method: selectedPayMethod,
+        cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : payModalOrder.total_amount,
+        cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
+      })
+      .eq('id', payModalOrder.id);
 
     if (!error) {
-      printThermalReceiptWithjsPDF({ ...order, payment_status: 'paid' });
+      printThermalReceiptWithjsPDF(
+        { ...payModalOrder, payment_status: 'paid', payment_method: selectedPayMethod },
+        selectedPayMethod === 'cash' ? numPayCashReceived : payModalOrder.total_amount,
+        selectedPayMethod === 'cash' ? payCashChange : 0
+      );
+
+      setPayModalOrder(null);
+      setPayCashReceived('');
       fetchOrders();
     } else {
       alert('Gagal mengupdate status: ' + error.message);
     }
+    setSubmittingPay(false);
   };
 
   // 🗑️ Hapus Pesanan
   const handleDeleteOrder = async (order: PosOrder) => {
     if (confirm(`Apakah Anda yakin ingin menghapus pesanan ${order.order_number} (${order.customer_name})?`)) {
-      // 1. Hapus pos_order_items terlebih dahulu
       await supabase.from('pos_order_items').delete().eq('order_id', order.id);
-
-      // 2. Hapus pos_orders
       const { error } = await supabase.from('pos_orders').delete().eq('id', order.id);
 
       if (!error) {
@@ -339,7 +408,11 @@ export default function KasirCafePage() {
 
                   {o.payment_status === 'pending' ? (
                     <button
-                      onClick={() => handleMarkAsPaid(o)}
+                      onClick={() => {
+                        setPayModalOrder(o);
+                        setSelectedPayMethod('cash');
+                        setPayCashReceived('');
+                      }}
                       className="bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)]"
                     >
                       <DollarSign className="w-4 h-4" />
@@ -362,20 +435,132 @@ export default function KasirCafePage() {
                     CETAK STRUK POS
                   </button>
                   {role === 'owner' && (
-
-                  <button
-                    onClick={() => handleDeleteOrder(o)}
-                    className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl transition-all"
-                    title="Hapus Pesanan"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                   )}
+                    <button
+                      onClick={() => handleDeleteOrder(o)}
+                      className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl transition-all"
+                      title="Hapus Pesanan"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 💵 MODAL PELUNASAN KASIR (BAYAR CAFE & SELF-ORDER) */}
+      {payModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl">
+            
+            <div className="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-[#ccff00]" />
+                Pelunasan Pesanan Cafe
+              </h3>
+              <button onClick={() => setPayModalOrder(null)} className="p-1 rounded-full bg-white/5 text-zinc-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="p-3 bg-white/5 rounded-2xl border border-white/5 text-xs space-y-1">
+                <p className="text-zinc-400">No. Order: <strong className="text-white">{payModalOrder.order_number}</strong></p>
+                <p className="text-zinc-400">Pemesan: <strong className="text-white">{payModalOrder.customer_name}</strong></p>
+                <p className="text-zinc-400">Total Tagihan: <strong className="text-[#ccff00] text-sm">{formatRupiah(payModalOrder.total_amount)}</strong></p>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-zinc-400 mb-1">Metode Pembayaran</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'cash', label: 'Tunai', icon: <Banknote className="w-3.5 h-3.5" /> },
+                    { id: 'qris', label: 'QRIS', icon: <QrCode className="w-3.5 h-3.5" /> },
+                    { id: 'transfer', label: 'Transfer', icon: <CreditCard className="w-3.5 h-3.5" /> },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setSelectedPayMethod(m.id as any)}
+                      className={`p-2 rounded-xl text-[10px] font-bold flex flex-col items-center gap-1 border transition-all ${
+                        selectedPayMethod === m.id
+                          ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950'
+                          : 'bg-white/5 border-white/10 text-zinc-400'
+                      }`}
+                    >
+                      {m.icon} {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Nominal Tunai & Kembalian */}
+              {selectedPayMethod === 'cash' && (
+                <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 space-y-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-300 mb-1 flex items-center justify-between">
+                      <span>Uang Diterima (Rp)</span>
+                      {numPayCashReceived > 0 && numPayCashReceived < payModalOrder.total_amount && (
+                        <span className="text-rose-400 text-[9px]">Uang Kurang!</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <Coins className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={payCashReceived}
+                        onChange={(e) => setPayCashReceived(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#ccff00]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preset Tombol Pecahan Cepat */}
+                  <div className="grid grid-cols-4 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPayCashReceived(payModalOrder.total_amount)}
+                      className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-zinc-300"
+                    >
+                      Uang Pas
+                    </button>
+                    {[10000, 20000, 50000, 100000].map((nominal) => (
+                      <button
+                        key={nominal}
+                        type="button"
+                        onClick={() => setPayCashReceived(nominal)}
+                        className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-[#ccff00]"
+                      >
+                        {nominal / 1000}k
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Display Kembalian */}
+                  <div className="flex justify-between items-center text-xs pt-1 border-t border-white/10 font-bold">
+                    <span className="text-zinc-400">Kembalian:</span>
+                    <span className={payCashChange >= 0 && numPayCashReceived >= payModalOrder.total_amount ? 'text-emerald-400' : 'text-zinc-500'}>
+                      {formatRupiah(payCashChange)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleConfirmPayModal}
+                disabled={submittingPay || (selectedPayMethod === 'cash' && numPayCashReceived < payModalOrder.total_amount)}
+                className="w-full bg-[#ccff00] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 mt-4 shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
+              >
+                {submittingPay ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                PROSES & PRINT STRUK (JSPDF)
+              </button>
+            </div>
+
+          </div>
         </div>
       )}
 
