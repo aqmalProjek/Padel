@@ -53,8 +53,8 @@ export const metadata: Metadata = {
     email: true,
   },
   icons: {
-    icon: "/eksdipadel.png",
-    shortcut: "/eksdipadel.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
     apple: "/apple-touch-icon.png", // Disarankan buat Apple Touch Icon spesifik
   },
   // OpenGraph (Untuk share ke medsos agar SEO Friendly)
