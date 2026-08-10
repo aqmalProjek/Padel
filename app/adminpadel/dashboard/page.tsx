@@ -5,14 +5,14 @@ import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { getHourlyRate, CourtPricing } from '@/lib/pricing';
 import jsPDF from 'jspdf';
-import { 
-  Calendar, 
-  Clock, 
-  CheckCircle2, 
-  Plus, 
-  DollarSign, 
-  User, 
-  Phone, 
+import {
+  Calendar,
+  Clock,
+  CheckCircle2,
+  Plus,
+  DollarSign,
+  User,
+  Phone,
   RefreshCw,
   Search,
   X,
@@ -71,7 +71,7 @@ interface ExistingBooking {
 export default function DashboardKasirPage() {
   const { role, loading: authLoading } = useAuth();
   console.log('role', role, 'authLoading', authLoading);
-  
+
   const ownerWA = "628132314141"; // WA Owner untuk Notif Kasir
 
   // Helper YYYY-MM-DD
@@ -149,9 +149,9 @@ export default function DashboardKasirPage() {
 
   // 📄 PRINT STRUK THERMAL POS DENGAN JSPDF
   const printThermalReceiptWithjsPDF = (
-    bookingData: Booking, 
-    isDp: boolean, 
-    dpPaid: number, 
+    bookingData: Booking,
+    isDp: boolean,
+    dpPaid: number,
     payMethod: string,
     cashReceivedVal?: number,
     cashChangeVal?: number
@@ -171,7 +171,7 @@ export default function DashboardKasirPage() {
     doc.setFont('courier', 'bold');
     doc.setFontSize(13);
     doc.text('EKSDI PADEL COURTS', 36, y, { align: 'center' });
-    
+
     y += 5;
     doc.setFont('courier', 'normal');
     doc.setFontSize(8);
@@ -208,7 +208,7 @@ export default function DashboardKasirPage() {
     doc.text(`Total Tagihan : ${formatRupiah(bookingData.total_price)}`, 3, y);
     y += 4.5;
     doc.text(`Metode Bayar  : ${payMethod.toUpperCase()}`, 3, y);
-    
+
     if (payMethod === 'cash' && typeof cashReceivedVal === 'number' && cashReceivedVal > 0) {
       y += 4.5;
       doc.text(`Uang Diterima : ${formatRupiah(cashReceivedVal)}`, 3, y);
@@ -241,8 +241,8 @@ export default function DashboardKasirPage() {
     doc.text('Selamat Bermain di Eksdi Padel!', 36, y, { align: 'center' });
 
     // 🚀 FITUR AUTO PRINT DIALOG (Tanpa Tab Baru / Langsung Muncul Print Dialog)
-    const pdfBlobUrl : any = doc.output('bloburl');
-    
+    const pdfBlobUrl: any = doc.output('bloburl');
+
     // Buat elemen iframe tersembunyi untuk memicu dialog print browser
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
@@ -460,8 +460,8 @@ export default function DashboardKasirPage() {
     }
 
     if (
-      manualFormData.payment_method === 'cash' && 
-      manualFormData.payment_status !== 'pending' && 
+      manualFormData.payment_method === 'cash' &&
+      manualFormData.payment_status !== 'pending' &&
       numManualCashReceived < targetManualPayAmount
     ) {
       alert('Uang yang dibayarkan masih kurang!');
@@ -521,7 +521,7 @@ export default function DashboardKasirPage() {
 
   // Calculation untuk Modal Bayar / Pelunasan
   const numPayCashReceived = typeof payCashReceived === 'number' ? payCashReceived : 0;
-  const targetPayAmount = payModalBooking 
+  const targetPayAmount = payModalBooking
     ? (isDpProcess ? dpInputAmount : payModalBooking.total_price - (payModalBooking.dp_amount || 0))
     : 0;
   const payCashChange = selectedPayMethod === 'cash' ? Math.max(0, numPayCashReceived - targetPayAmount) : 0;
@@ -538,18 +538,18 @@ export default function DashboardKasirPage() {
     setSubmittingPay(true);
     const updatePayload = isDpProcess
       ? {
-          payment_status: 'paid_dp',
-          payment_method: selectedPayMethod,
-          dp_amount: dpInputAmount,
-          cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : dpInputAmount,
-          cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
-        }
+        payment_status: 'paid_dp',
+        payment_method: selectedPayMethod,
+        dp_amount: dpInputAmount,
+        cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : dpInputAmount,
+        cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
+      }
       : {
-          payment_status: 'paid_cashier',
-          payment_method: selectedPayMethod,
-          cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : targetPayAmount,
-          cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
-        };
+        payment_status: 'paid_cashier',
+        payment_method: selectedPayMethod,
+        cash_received: selectedPayMethod === 'cash' ? numPayCashReceived : targetPayAmount,
+        cash_change: selectedPayMethod === 'cash' ? payCashChange : 0,
+      };
 
     const { error } = await supabase
       .from('bookings')
@@ -559,9 +559,9 @@ export default function DashboardKasirPage() {
     if (!error) {
       // Print Struk jsPDF Secara Otomatis
       printThermalReceiptWithjsPDF(
-        payModalBooking, 
-        isDpProcess, 
-        dpInputAmount, 
+        payModalBooking,
+        isDpProcess,
+        dpInputAmount,
         selectedPayMethod,
         selectedPayMethod === 'cash' ? numPayCashReceived : targetPayAmount,
         selectedPayMethod === 'cash' ? payCashChange : 0
@@ -614,8 +614,8 @@ export default function DashboardKasirPage() {
 
     const isDp = notifModalBooking.payment_status === 'pending';
 
-    const message = 
-`*🔔 NOTIFIKASI KASIR -> OWNER*
+    const message =
+      `*🔔 NOTIFIKASI KASIR -> OWNER*
 ----------------------------------------
 Halo Boss/Owner, uang pembayaran pemain sudah masuk ke kasir! Mohon bantuannya untuk klik tombol *${isDp ? 'BAYAR DP' : 'BAYAR KASIR'}* di dashboard.
 
@@ -670,7 +670,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
 
   return (
     <div className="space-y-6 font-sans">
-      
+
       {/* HEADER & ACTION BUTTON */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#141e1b] p-5 rounded-2xl border border-white/10">
         <div>
@@ -769,9 +769,8 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
           filteredBookings.map((b) => (
             <div
               key={b.id}
-              className={`bg-[#141e1b] border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
-                b.payment_status === 'cancelled' ? 'border-rose-500/20 opacity-50' : 'border-white/10 hover:border-white/20'
-              }`}
+              className={`bg-[#141e1b] border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${b.payment_status === 'cancelled' ? 'border-rose-500/20 opacity-50' : 'border-white/10 hover:border-white/20'
+                }`}
             >
               {/* Info Lapangan, Jam, Pemesan & WA */}
               <div className="flex items-start gap-3.5">
@@ -802,7 +801,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
 
               {/* Rincian Tagihan & Tombol Aksi Pembayaran */}
               <div className="flex items-center justify-between md:justify-end gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-white/10 flex-wrap">
-                
+
                 <div className="text-left md:text-right mr-2">
                   <span className="block text-[10px] text-zinc-400">Total Tagihan:</span>
                   <span className="text-sm font-black text-white">{formatRupiah(b.total_price)}</span>
@@ -829,21 +828,29 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                         {b.payment_status === 'paid_dp' ? 'NOTIF REQ PELUNASAN' : 'NOTIF REQ BAYAR/DP'}
                       </button>
                     )}
+                    {b.payment_status === 'paid_cashier' ? (
 
+                      <button
+                        onClick={() => printThermalReceiptWithjsPDF(b, false, 0, b.payment_method, b.cash_received, b.cash_change)}
+                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-all"
+                        title="Cetak Ulang Struk"
+                      >
+                        <Printer className="w-4 h-4 text-[#ccff00]" />
+                      </button>
+                    ) : (null)}
                     <span
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border ${
-                        b.payment_status === 'paid_cashier'
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border ${b.payment_status === 'paid_cashier'
                           ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                           : b.payment_status === 'paid_dp'
-                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                          : 'bg-zinc-500/10 border-zinc-500/30 text-zinc-400'
-                      }`}
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                            : 'bg-zinc-500/10 border-zinc-500/30 text-zinc-400'
+                        }`}
                     >
                       {b.payment_status === 'paid_cashier'
                         ? `LUNAS (${b.payment_method?.toUpperCase()})`
                         : b.payment_status === 'paid_dp'
-                        ? 'DP PAID'
-                        : 'PENDING'}
+                          ? 'DP PAID'
+                          : 'PENDING'}
                     </span>
                   </div>
                 ) : (
@@ -858,16 +865,16 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           <Printer className="w-4 h-4 text-[#ccff00]" />
                         </button>
 
-                        
+
                         <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           Lunas ({b.payment_method?.toUpperCase()})
                         </span>
 
 
-                        
+
                         {/* Print Cetak Ulang Struk via jsPDF */}
-                        
+
 
                         <button
                           onClick={() => handleCancelBooking(b.id, b.customer_name)}
@@ -928,7 +935,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
       {payModalBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl">
-            
+
             <div className="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-[#ccff00]" />
@@ -969,11 +976,10 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       key={m}
                       type="button"
                       onClick={() => setSelectedPayMethod(m as any)}
-                      className={`p-2 rounded-xl text-[10px] font-bold uppercase transition-all ${
-                        selectedPayMethod === m
+                      className={`p-2 rounded-xl text-[10px] font-bold uppercase transition-all ${selectedPayMethod === m
                           ? 'bg-[#ccff00] text-zinc-950'
                           : 'bg-white/5 text-zinc-400 border border-white/10'
-                      }`}
+                        }`}
                     >
                       {m}
                     </button>
@@ -1052,7 +1058,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
       {notifModalBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl">
-            
+
             <div className="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Send className="w-4 h-4 text-cyan-400" />
@@ -1105,7 +1111,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm transition-all animate-fadeIn">
           <div className="w-full max-w-md bg-[#141e1b] border border-white/10 rounded-t-3xl md:rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto relative font-sans">
-            
+
             <div className="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
               <div>
                 <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
@@ -1119,7 +1125,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
             </div>
 
             <form onSubmit={handleManualSubmit} className="space-y-4">
-              
+
               {/* 1. TANGGAL MAIN */}
               <div>
                 <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
@@ -1147,11 +1153,10 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                             key={d.isoDate}
                             type="button"
                             onClick={() => setManualDate(d.isoDate)}
-                            className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition-all ${
-                              isSelected
+                            className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition-all ${isSelected
                                 ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_15px_rgba(204,255,0,0.25)]'
                                 : 'bg-white/5 border-white/10 text-zinc-400 hover:border-white/20'
-                            }`}
+                              }`}
                           >
                             <span className="block text-[10px] uppercase font-semibold">{d.dayName}</span>
                             <span className="block text-xs font-bold mt-0.5">{d.dayNum}</span>
@@ -1218,16 +1223,15 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           type="button"
                           disabled={slot.isPassed}
                           onClick={() => setManualSelectedTime(slot.time)}
-                          className={`p-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all ${
-                            slot.isPassed
+                          className={`p-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all ${slot.isPassed
                               ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
                               : isSelected
-                              ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
-                              : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
-                          }`}
+                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
+                                : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
+                            }`}
                         >
                           <span className="text-xs font-bold">{slot.time}</span>
-                          
+
                           <div className="mt-0.5 flex flex-col items-center">
                             {slot.isDiscounted ? (
                               <>
@@ -1262,11 +1266,10 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       key={mins}
                       type="button"
                       onClick={() => setManualDurationMins(mins)}
-                      className={`py-2.5 rounded-2xl border text-xs font-bold transition-all ${
-                        manualDurationMins === mins
+                      className={`py-2.5 rounded-2xl border text-xs font-bold transition-all ${manualDurationMins === mins
                           ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 shadow-[0_0_10px_rgba(204,255,0,0.2)]'
                           : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
-                      }`}
+                        }`}
                     >
                       {mins} min
                     </button>
@@ -1429,8 +1432,8 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
               <button
                 type="submit"
                 disabled={
-                  submittingManual || 
-                  !manualSelectedTime || 
+                  submittingManual ||
+                  !manualSelectedTime ||
                   (manualFormData.payment_method === 'cash' && manualFormData.payment_status !== 'pending' && numManualCashReceived < targetManualPayAmount)
                 }
                 className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
