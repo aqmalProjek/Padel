@@ -19,7 +19,9 @@ import {
   Loader2, 
   Receipt,
   Printer,
-  UtensilsCrossed
+  UtensilsCrossed,
+  Trash2,
+  Coins
 } from 'lucide-react';
 
 interface MenuItem {
@@ -48,6 +50,7 @@ export default function KasirCafePage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qris' | 'transfer'>('cash');
+  const [cashReceived, setCashReceived] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
 
   // Modal Struk Sukses
@@ -82,73 +85,111 @@ export default function KasirCafePage() {
     }).format(val || 0);
   };
 
+  // Total Belanja
+  const totalAmount = cart.reduce((acc, curr) => acc + curr.subtotal, 0);
+
+  // Hitung Kembalian
+  const numericCashReceived = typeof cashReceived === 'number' ? cashReceived : 0;
+  const cashChange = paymentMethod === 'cash' ? Math.max(0, numericCashReceived - totalAmount) : 0;
+
   // 📄 CETAK STRUK THERMAL POS CAFE (80mm) DENGAN JSPDF
   const printThermalReceiptWithjsPDF = (order: any) => {
+    const baseHeight = 120; 
+    const itemHeight = (order.items?.length || 0) * 5;
+    const dynamicPageHeight = baseHeight + itemHeight;
+
     const doc = new jsPDF({
       unit: 'mm',
-      format: [80, 150], // Ukuran Kertas Thermal Standar Kasir POS (80mm)
+      format: [72, dynamicPageHeight],
     });
 
     const printedAt = order.date || new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
+    let y = 8;
+
     // Header Struk
     doc.setFont('courier', 'bold');
-    doc.setFontSize(11);
-    doc.text('EKSDI CAFE & RENTAL', 40, 8, { align: 'center' });
+    doc.setFontSize(13);
+    doc.text('EKSDI CAFE & RENTAL', 36, y, { align: 'center' });
     
+    y += 5;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Jl. Padel No. 123, Tasikmalaya', 40, 12, { align: 'center' });
-    doc.text('WA / Telp: 089630041079', 40, 15, { align: 'center' });
-    doc.text('------------------------------------------', 40, 19, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text('Jl. Simpang Nagrog, Tasikmalaya', 36, y, { align: 'center' });
+    y += 4;
+    doc.text('WA / Telp: 08132314141', 36, y, { align: 'center' });
+    y += 4;
+    doc.text('=================================', 36, y, { align: 'center' });
 
     // Info Transaksi
-    doc.setFontSize(8);
-    doc.text(`No. Order : ${order.orderNumber}`, 5, 24);
-    doc.text(`Tgl / Jam : ${printedAt}`, 5, 28);
-    doc.text(`Pemesan   : ${order.customerName}`, 5, 32);
-    doc.text('------------------------------------------', 40, 36, { align: 'center' });
+    y += 5;
+    doc.setFontSize(9);
+    doc.text(`No. Order : ${order.orderNumber}`, 3, y);
+    y += 4.5;
+    doc.text(`Tgl / Jam : ${printedAt}`, 3, y);
+    y += 4.5;
+    doc.text(`Pemesan   : ${order.customerName}`, 3, y);
+    y += 4;
+    doc.text('---------------------------------', 36, y, { align: 'center' });
 
     // Header Tabel Items
+    y += 5;
     doc.setFont('courier', 'bold');
-    doc.text('QTY  ITEM                   TOTAL', 5, 40);
+    doc.text('QTY  ITEM                   TOTAL', 3, y);
+    y += 4;
     doc.setFont('courier', 'normal');
-    doc.text('------------------------------------------', 40, 43, { align: 'center' });
+    doc.text('---------------------------------', 36, y, { align: 'center' });
 
-    let yPosition = 48;
+    // Rincian Items
+    y += 5;
     order.items.forEach((item: any) => {
-      const itemName = item.menuItem.name.length > 18 
-        ? item.menuItem.name.substring(0, 18) + '..' 
+      const itemName = item.menuItem.name.length > 16 
+        ? item.menuItem.name.substring(0, 16) + '..' 
         : item.menuItem.name;
+      
       const qtyStr = `${item.quantity}x`.padEnd(5, ' ');
-      const priceStr = formatRupiah(item.subtotal).padStart(11, ' ');
+      const priceStr = formatRupiah(item.subtotal).padStart(12, ' ');
 
-      doc.text(`${qtyStr}${itemName.padEnd(20, ' ')}${priceStr}`, 5, yPosition);
-      yPosition += 5;
+      doc.text(`${qtyStr}${itemName.padEnd(17, ' ')}${priceStr}`, 3, y);
+      y += 5;
     });
 
-    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
-    yPosition += 5;
+    y += 2;
+    doc.text('---------------------------------', 36, y, { align: 'center' });
+    y += 5;
 
-    // Summary Total
+    // Summary Total & Pembayaran
     doc.setFont('courier', 'bold');
-    doc.text(`TOTAL BAYAR : ${formatRupiah(order.totalAmount)}`, 5, yPosition);
-    yPosition += 4;
+    doc.setFontSize(10);
+    doc.text(`TOTAL BAYAR : ${formatRupiah(order.totalAmount)}`, 3, y);
+    
+    y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.text(`METODE BAYAR: ${order.paymentMethod.toUpperCase()}`, 5, yPosition);
-    yPosition += 4;
-    doc.text(`STATUS       : LUNAS (PAID)`, 5, yPosition);
+    doc.setFontSize(9);
+    doc.text(`METODE BAYAR: ${order.paymentMethod.toUpperCase()}`, 3, y);
+    
+    if (order.paymentMethod === 'cash') {
+      y += 4.5;
+      doc.text(`UANG DIBAYAR: ${formatRupiah(order.cashReceived)}`, 3, y);
+      y += 4.5;
+      doc.text(`KEMBALIAN   : ${formatRupiah(order.cashChange)}`, 3, y);
+    }
+
+    y += 4.5;
+    doc.text(`STATUS       : LUNAS (PAID)`, 3, y);
 
     // Footer Struk
-    yPosition += 6;
-    doc.text('------------------------------------------', 40, yPosition, { align: 'center' });
-    yPosition += 4;
+    y += 6;
+    doc.text('=================================', 36, y, { align: 'center' });
+    y += 5;
     doc.setFont('courier', 'bold');
-    doc.text('TERIMA KASIH', 40, yPosition, { align: 'center' });
-    yPosition += 4;
+    doc.setFontSize(10);
+    doc.text('TERIMA KASIH', 36, y, { align: 'center' });
+    
+    y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Selamat Menikmati di Eksdi Padel!', 40, yPosition, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text('Selamat Menikmati di Eksdi Padel!', 36, y, { align: 'center' });
 
     // Trigger Print Window
     doc.autoPrint();
@@ -195,10 +236,7 @@ export default function KasirCafePage() {
     });
   };
 
-  // Total Belanja
-  const totalAmount = cart.reduce((acc, curr) => acc + curr.subtotal, 0);
-
-  // Process Checkout (Bisa Dikelola Seluruh User/Kasir/Owner)
+  // Process Checkout
   const handleCheckout = async () => {
     if (cart.length === 0) {
       alert('Keranjang belanja masih kosong!');
@@ -206,6 +244,10 @@ export default function KasirCafePage() {
     }
     if (!customerName) {
       alert('Mohon isi Atas Nama Pemesan!');
+      return;
+    }
+    if (paymentMethod === 'cash' && numericCashReceived < totalAmount) {
+      alert('Uang yang dibayarkan masih kurang!');
       return;
     }
 
@@ -222,6 +264,8 @@ export default function KasirCafePage() {
           total_amount: totalAmount,
           payment_status: 'paid',
           payment_method: paymentMethod,
+          cash_received: paymentMethod === 'cash' ? numericCashReceived : totalAmount,
+          cash_change: paymentMethod === 'cash' ? cashChange : 0,
         },
       ])
       .select()
@@ -251,6 +295,8 @@ export default function KasirCafePage() {
         customerName,
         totalAmount,
         paymentMethod,
+        cashReceived: paymentMethod === 'cash' ? numericCashReceived : totalAmount,
+        cashChange: paymentMethod === 'cash' ? cashChange : 0,
         items: [...cart],
         date: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
       };
@@ -263,6 +309,7 @@ export default function KasirCafePage() {
       // Reset
       setCart([]);
       setCustomerName('');
+      setCashReceived('');
       fetchMenu();
     } else {
       alert('Gagal menyimpan detail item pesanan!');
@@ -295,7 +342,7 @@ export default function KasirCafePage() {
 
           <div className="flex flex-col sm:flex-row gap-2">
             {/* Filter Category */}
-            <div className="flex gap-1 overflow-x-auto pb-1 sm:pb-0 shrink-0">
+            <div className="flex gap-1 overflow-x-auto pb-1 sm:pb-0 shrink-0 scrollbar-none">
               {[
                 { id: 'all', label: 'Semua', icon: <UtensilsCrossed className="w-3.5 h-3.5" /> },
                 { id: 'minuman', label: 'Minuman', icon: <Coffee className="w-3.5 h-3.5" /> },
@@ -345,7 +392,7 @@ export default function KasirCafePage() {
                 className="bg-[#141e1b] border border-white/10 hover:border-[#ccff00]/50 rounded-2xl p-3 text-left flex flex-col justify-between transition-all group active:scale-95"
               >
                 <div>
-                  <div className="w-full h-24 rounded-xl bg-black/40 overflow-hidden mb-2 relative flex items-center justify-center">
+                  <div className="w-full h-24 rounded-xl bg-black/40 overflow-hidden mb-2 relative flex items-center justify-center border border-white/5">
                     {item.image_url ? (
                       <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                     ) : (
@@ -383,8 +430,8 @@ export default function KasirCafePage() {
               Keranjang Pesanan
             </h2>
             {cart.length > 0 && (
-              <button onClick={() => setCart([])} className="text-[10px] text-rose-400 hover:underline">
-                Kosongkan
+              <button onClick={() => { setCart([]); setCashReceived(''); }} className="text-[10px] text-rose-400 hover:underline flex items-center gap-1">
+                <Trash2 className="w-3 h-3" /> Kosongkan
               </button>
             )}
           </div>
@@ -408,7 +455,7 @@ export default function KasirCafePage() {
           </div>
 
           {/* List Items Keranjang */}
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10">
             {cart.length === 0 ? (
               <div className="text-center py-10 text-zinc-500 text-xs">
                 Keranjang masih kosong.<br />Klik menu di sebelah kiri untuk memilih.
@@ -437,7 +484,7 @@ export default function KasirCafePage() {
         </div>
 
         {/* Total & Checkout Section */}
-        <div className="pt-3 border-t border-white/10 space-y-3">
+        <div className="pt-3 border-t border-white/10 space-y-3 mt-2">
           
           {/* Pilih Metode Pembayaran */}
           <div>
@@ -464,17 +511,70 @@ export default function KasirCafePage() {
             </div>
           </div>
 
+          {/* 💵 INPUT UANG DIBAYAR & PRESET TOMBOL (KHUSUS TUNAI) */}
+          {paymentMethod === 'cash' && (
+            <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 space-y-2">
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-300 mb-1 flex items-center justify-between">
+                  <span>Uang Diterima (Rp)</span>
+                  {numericCashReceived > 0 && numericCashReceived < totalAmount && (
+                    <span className="text-rose-400 text-[9px]">Uang Kurang!</span>
+                  )}
+                </label>
+                <div className="relative">
+                  <Coins className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#ccff00]"
+                  />
+                </div>
+              </div>
+
+              {/* Tombol Preset Cepat */}
+              <div className="grid grid-cols-4 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCashReceived(totalAmount)}
+                  className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-zinc-300"
+                >
+                  Uang Pas
+                </button>
+                {[20000, 50000, 100000].map((nominal) => (
+                  <button
+                    key={nominal}
+                    type="button"
+                    onClick={() => setCashReceived(nominal)}
+                    className="py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold text-[#ccff00]"
+                  >
+                    {nominal / 1000}k
+                  </button>
+                ))}
+              </div>
+
+              {/* Display Kembalian */}
+              <div className="flex justify-between items-center text-xs pt-1 border-t border-white/10 font-bold">
+                <span className="text-zinc-400">Kembalian:</span>
+                <span className={cashChange >= 0 && numericCashReceived >= totalAmount ? 'text-emerald-400' : 'text-zinc-500'}>
+                  {formatRupiah(cashChange)}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Subtotal Total */}
           <div className="flex justify-between items-center text-sm font-black text-white pt-1">
             <span>TOTAL BAYAR:</span>
-            <span className="text-base text-[#ccff00]">{formatRupiah(totalAmount)}</span>
+            <span className="text-lg text-[#ccff00]">{formatRupiah(totalAmount)}</span>
           </div>
 
-          {/* Submit Button (All User / Kasir / Owner) */}
+          {/* Submit Button */}
           <button
             onClick={handleCheckout}
-            disabled={submitting || cart.length === 0}
-            className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-50"
+            disabled={submitting || cart.length === 0 || (paymentMethod === 'cash' && numericCashReceived < totalAmount)}
+            className="w-full bg-[#ccff00] hover:bg-[#b8e600] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(204,255,0,0.2)] disabled:opacity-40"
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             PROSES TRANSAKSI & BAYAR
@@ -486,7 +586,7 @@ export default function KasirCafePage() {
       {/* ------------------ 📱 MODAL STRUK SUKSES & CETAK ------------------ */}
       {completedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-6 shadow-2xl relative text-center">
+          <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-6 shadow-2xl relative text-center font-sans">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto mb-3">
               <Receipt className="w-6 h-6" />
             </div>
@@ -494,7 +594,7 @@ export default function KasirCafePage() {
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">EKSDI CAFE & RENTAL</h3>
             <p className="text-[10px] text-zinc-400 mt-0.5">Struk Transaksi Selesai</p>
 
-            <div className="my-4 p-3 bg-black/40 rounded-2xl border border-white/10 text-left text-xs space-y-2">
+            <div className="my-4 p-3 bg-black/40 rounded-2xl border border-white/10 text-left text-xs space-y-2 relative">
               <div className="flex justify-between text-zinc-400 text-[10px]">
                 <span>No: {completedOrder.orderNumber}</span>
                 <span>{completedOrder.date}</span>
@@ -503,7 +603,7 @@ export default function KasirCafePage() {
                 Atas Nama: {completedOrder.customerName}
               </div>
 
-              <div className="space-y-1 pt-1">
+              <div className="space-y-1 pt-1 max-h-32 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10">
                 {completedOrder.items.map((i: any, idx: number) => (
                   <div key={idx} className="flex justify-between text-[11px] text-zinc-300">
                     <span>{i.menuItem.name} x{i.quantity}</span>
@@ -512,9 +612,23 @@ export default function KasirCafePage() {
                 ))}
               </div>
 
-              <div className="border-t border-white/10 pt-2 flex justify-between font-black text-sm text-[#ccff00]">
-                <span>TOTAL:</span>
-                <span>{formatRupiah(completedOrder.totalAmount)}</span>
+              <div className="border-t border-white/10 pt-2 space-y-1 font-bold text-xs">
+                <div className="flex justify-between text-zinc-300">
+                  <span>TOTAL:</span>
+                  <span className="text-[#ccff00] font-black text-sm">{formatRupiah(completedOrder.totalAmount)}</span>
+                </div>
+                {completedOrder.paymentMethod === 'cash' && (
+                  <>
+                    <div className="flex justify-between text-[11px] text-zinc-400">
+                      <span>Tunai Diterima:</span>
+                      <span>{formatRupiah(completedOrder.cashReceived)}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-emerald-400">
+                      <span>Kembalian:</span>
+                      <span>{formatRupiah(completedOrder.cashChange)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -522,14 +636,14 @@ export default function KasirCafePage() {
             <div className="space-y-2">
               <button
                 onClick={() => printThermalReceiptWithjsPDF(completedOrder)}
-                className="w-full bg-[#ccff00] text-zinc-950 font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(204,255,0,0.2)]"
+                className="w-full bg-[#ccff00] text-zinc-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(204,255,0,0.2)]"
               >
                 <Printer className="w-4 h-4" /> CETAK STRUK POS (JSPDF)
               </button>
 
               <button
                 onClick={() => setCompletedOrder(null)}
-                className="w-full bg-white/5 hover:bg-white/10 text-zinc-300 font-bold py-2.5 rounded-xl text-xs border border-white/10"
+                className="w-full bg-white/5 hover:bg-white/10 text-zinc-300 font-bold py-3 rounded-xl text-xs border border-white/10"
               >
                 TRANSAKSI BARU
               </button>

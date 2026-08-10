@@ -181,7 +181,7 @@ export default function EksdiPadelLinktree() {
   // 5. Generate Slot Jam (06.00 - 21.00)
   const generateTimeSlots = () => {
     const slots = [];
-    const startHour = 6;
+    const startHour = 7;
     const endHour = 21;
 
     const now = new Date();
@@ -516,7 +516,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
               <Clock className="w-3.5 h-3.5 text-[#ccff00]" />
             </div>
             <div className="flex justify-between text-[11px] text-zinc-300">
-              <span>Sesi 1 (Pagi - Siang: 07.00 - 15.00)</span>
+              <span>Sesi 1 (Pagi - Siang: 07.00 - 14.00)</span>
               <strong className="text-[#ccff00]">Promo Pagi</strong>
             </div>
             <div className="flex justify-between text-[11px] text-zinc-300">
