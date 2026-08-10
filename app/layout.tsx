@@ -12,18 +12,18 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// 📱 VIEWPORT CONFIGURATION (Penting untuk Mobile SEO)
+// 📱 VIEWPORT CONFIGURATION (Mobile & Branding)
 export const viewport: Viewport = {
-  themeColor: "#ccff00", // Warna utama branding Eksdi Padel
+  themeColor: "#ccff00",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5, // Mengizinkan user zoom untuk aksesibilitas, tapi bagus untuk SEO mobile
+  maximumScale: 5,
 };
 
-// 🌐 METADATA SEO LOKAL & BRANDING (Target Utama: "Padel Tasik")
-// Ganti "https://eksdipadel.com" dengan domain asli kamu jika sudah ada.
+// 🌐 BASE URL & DOMAIN
 const siteUrl = "https://eksdipadel.com";
 
+// 🌐 METADATA SEO & FAVICON CONFIG
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
@@ -52,12 +52,21 @@ export const metadata: Metadata = {
     address: true,
     email: true,
   },
+
+  // 🖼️ FAVICON & ICON CONFIGURATION (Memaksa Bypass Cache Google & Vercel)
   icons: {
-    icon: "/favicon.ico",
-    shortcut: "/favicon.ico",
-    apple: "/apple-touch-icon.png", // Disarankan buat Apple Touch Icon spesifik
+    icon: [
+      { url: "/favicon.ico?v=2", sizes: "any" },
+      { url: "/icon.png", type: "image/png", sizes: "32x32" },
+    ],
+    shortcut: "/favicon.ico?v=2",
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
   },
-  // OpenGraph (Untuk share ke medsos agar SEO Friendly)
+  manifest: "/site.webmanifest",
+
+  // 📱 OPENGRAPH (Medsos Share & Google Preview)
   openGraph: {
     title: "Padel Tasik - Main di Lapangan Modern Eksdi Padel Tasikmalaya",
     description:
@@ -68,14 +77,15 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/og-image.webp", // Disarankan buat gambar khusus OG (1200x630) yang menarik
+        url: "/og-image.webp",
         width: 1200,
         height: 630,
         alt: "Suasana Lapangan Eksdi Padel Tasikmalaya",
       },
     ],
   },
-  // Robots config
+
+  // 🤖 ROBOTS
   robots: {
     index: true,
     follow: true,
@@ -90,11 +100,12 @@ export const metadata: Metadata = {
   alternates: {
     canonical: siteUrl,
   },
-  // Geo tags (Meta tags jadul tapi masih dibaca beberapa engine untuk local business)
+
+  // 📍 GEO TAGS (Local Business Tasikmalaya)
   other: {
     "geo.region": "ID-JB",
     "geo.placename": "Tasikmalaya",
-    "geo.position": "-7.294295;108.197783", // Sesuai kordinat Boss
+    "geo.position": "-7.294295;108.197783",
     ICBM: "-7.294295, 108.197783",
   },
 };
@@ -104,30 +115,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // 📍 JSON-LD SCHEMA.ORG FOR LOCAL SEO (Sangat Penting untuk "Padel Terdekat" & Google Maps)
-  // Data alamat di-reverse engineer dari koordinat Boss
+  // 📍 JSON-LD SCHEMA.ORG FOR LOCAL SEO & GOOGLE MAPS
   const jsonLd = {
     "@context": "https://schema.org",
-    // Menggunakan multipel type agar Google paham ini tempat aktivitas sekaligus bisnis lokal
     "@type": ["SportsActivityLocation", "LocalBusiness"],
     name: "Eksdi Padel Tasikmalaya",
-    image: `${siteUrl}/eksdipadel.png`,
+    image: `${siteUrl}/og-image.webp`,
     "@id": siteUrl,
     url: siteUrl,
-    telephone: "+628132314141", // Nomor WA Eksdi Padel
-    priceRange: "Rp 100.000 - Rp 250.000", // Estimasi harga
+    telephone: "+628132314141",
+    priceRange: "Rp 100.000 - Rp 250.000",
     address: {
       "@type": "PostalAddress",
-      streetAddress: "Jl. Simpang Nagrog, Nagarasari, Cipedes", // 👈 Alamat presisi sesuai koordinat
+      streetAddress: "Jl. Simpang Nagrog, Nagarasari, Cipedes",
       addressLocality: "Kota Tasikmalaya",
       addressRegion: "Jawa Barat",
-      postalCode: "46132", // 👈 Kode pos presisi Cipedes/Nagarasari
+      postalCode: "46132",
       addressCountry: "ID",
     },
     geo: {
       "@type": "GeoCoordinates",
-      latitude: -7.294295359883887, // 👈 Kordinat Boss
-      longitude: 108.19778262883635, // 👈 Kordinat Boss
+      latitude: -7.294295359883887,
+      longitude: 108.19778262883635,
     },
     openingHoursSpecification: [
       {
@@ -141,46 +150,30 @@ export default function RootLayout({
           "Saturday",
           "Sunday",
         ],
-        opens: "06:00", // Sesuaikan jam operasional asli
+        opens: "06:00",
         closes: "22:00",
       },
     ],
     sameAs: [
-      "https://www.instagram.com/eksdipadelcourts", // IG Komunitas/Bisnis
-      // Tambahkan URL Facebook, Google Maps Bisnis, dll jika ada di sini
+      "https://www.instagram.com/eksdipadelcourts",
     ],
-    // Tambahan untuk memperkuat SEO olahraga
     sport: "Padel",
-    coach: {
-      "@type": "Person",
-      name: "Tersedia Pelatih Padel" // Contoh jika ada coach
-    }
   };
 
   return (
     <html
-      lang="id" // 👈 Wajib "id" agar Google tahu ini target Indonesia
+      lang="id"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* Inject JSON-LD Schema.org */}
+        {/* Inject Schema JSON-LD */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        {/* Favicons */}
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="manifest" href="/site.webmanifest" />
       </head>
       <body className="min-h-full flex flex-col font-sans bg-[#0f1715] text-white">
-        {/* Kamu bisa menambahkan Header/Navbar SEO friendly di sini */}
-        
-        <main className="flex-grow">
-          {children}
-        </main>
-        
-        {/* Kamu bisa menambahkan Footer SEO friendly di sini yang berisi alamat lengkap */}
+        <main className="flex-grow">{children}</main>
       </body>
     </html>
   );
