@@ -26,6 +26,7 @@ import {
   Footprints,
   CookieIcon
 } from 'lucide-react';
+import Image from 'next/image';
 
 interface Court extends CourtPricing {
   id: string;
@@ -365,6 +366,21 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
       ),
       href: 'https://www.instagram.com/eksdipadelcourts',
     },
+    {
+    id: 'courtside',
+    title: 'Booking Courtside',
+    subtitle: 'Sewa lapangan & info klub',
+    icon: (
+      <Image 
+        src="/courtside.png" 
+        alt="Courtside Logo" 
+        width={24} 
+        height={24} 
+        className="w-6 h-6 object-contain rounded-md"
+      />
+    ),
+    href: 'https://courtside.id/clubs/eksdi-padel',
+  },
     {
       id: 'location',
       title: 'Location & Google Maps',
