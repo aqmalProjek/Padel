@@ -240,9 +240,23 @@ export default function DashboardKasirPage() {
     doc.setFontSize(8);
     doc.text('Selamat Bermain di Eksdi Padel!', 36, y, { align: 'center' });
 
-    // Auto Cetak / Buka PDF di Windows Baru
-    doc.autoPrint();
-    window.open(doc.output('bloburl'), '_blank');
+    // 🚀 FITUR AUTO PRINT DIALOG (Tanpa Tab Baru / Langsung Muncul Print Dialog)
+    const pdfBlobUrl : any = doc.output('bloburl');
+    
+    // Buat elemen iframe tersembunyi untuk memicu dialog print browser
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = pdfBlobUrl;
+    document.body.appendChild(iframe);
+
+    iframe.onload = () => {
+      try {
+        iframe.contentWindow?.print();
+      } catch (e) {
+        // Fallback jika iframe print diblokir, buka window baru otomatis
+        window.open(pdfBlobUrl, '_blank');
+      }
+    };
   };
 
   // 1. Fetch Master Lapangan
@@ -836,12 +850,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                   <div>
                     {b.payment_status === 'paid_cashier' ? (
                       <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Lunas ({b.payment_method?.toUpperCase()})
-                        </span>
-                        
-                        {/* Print Cetak Ulang Struk via jsPDF */}
                         <button
                           onClick={() => printThermalReceiptWithjsPDF(b, false, 0, b.payment_method, b.cash_received, b.cash_change)}
                           className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-all"
@@ -849,6 +857,17 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                         >
                           <Printer className="w-4 h-4 text-[#ccff00]" />
                         </button>
+
+                        
+                        <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Lunas ({b.payment_method?.toUpperCase()})
+                        </span>
+
+
+                        
+                        {/* Print Cetak Ulang Struk via jsPDF */}
+                        
 
                         <button
                           onClick={() => handleCancelBooking(b.id, b.customer_name)}
