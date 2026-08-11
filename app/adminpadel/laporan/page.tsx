@@ -4,16 +4,16 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { 
-  BarChart3, 
-  Calendar, 
-  Download, 
-  DollarSign, 
-  Coffee, 
-  Activity, 
-  CreditCard, 
-  Banknote, 
-  QrCode, 
+import {
+  BarChart3,
+  Calendar,
+  Download,
+  DollarSign,
+  Coffee,
+  Activity,
+  CreditCard,
+  Banknote,
+  QrCode,
   RefreshCw,
   Loader2,
   TrendingUp,
@@ -57,12 +57,18 @@ export default function LaporanPendapatanPage() {
     setLoading(true);
 
     // 1. Fetch Laporan Booking Lapangan (Hanya yang Lunas)
-    const { data: bookingData } = await supabase
+    const { data: bookingData, error } = await supabase
       .from('bookings')
       .select('*, courts(name)')
       .gte('booking_date', startDate)
       .lte('booking_date', endDate)
-      .in('payment_status', ['paid_cashier', 'paid_dp']);
+      // Ambil yang 'paid_cashier' ATAU yang 'paid_dp' DENGAN syarat dp_amount > 0
+      .or('payment_status.eq.paid_cashier,and(payment_status.eq.paid_dp,dp_amount.gt.0)');
+
+
+    console.log('bookingData', bookingData);
+
+
 
     // 2. Fetch Laporan Cafe & Rental
     const { data: posData } = await supabase
@@ -88,15 +94,15 @@ export default function LaporanPendapatanPage() {
   const totalOmsetGabungan = omsetLapangan + omsetCafe;
 
   // Breakdown Metode Pembayaran
-  const cashTotal = 
+  const cashTotal =
     bookings.filter(b => b.payment_method === 'cash').reduce((acc, b) => acc + Number(b.total_price), 0) +
     posOrders.filter(p => p.payment_method === 'cash').reduce((acc, p) => acc + Number(p.total_amount), 0);
 
-  const qrisTotal = 
+  const qrisTotal =
     bookings.filter(b => b.payment_method === 'qris').reduce((acc, b) => acc + Number(b.total_price), 0) +
     posOrders.filter(p => p.payment_method === 'qris').reduce((acc, p) => acc + Number(p.total_amount), 0);
 
-  const transferTotal = 
+  const transferTotal =
     bookings.filter(b => b.payment_method === 'transfer').reduce((acc, b) => acc + Number(b.total_price), 0) +
     posOrders.filter(p => p.payment_method === 'transfer').reduce((acc, p) => acc + Number(p.total_amount), 0);
 
@@ -177,7 +183,7 @@ export default function LaporanPendapatanPage() {
 
   return (
     <div className="space-y-6">
-      
+
       {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#141e1b] p-5 rounded-2xl border border-white/10">
         <div>
@@ -232,7 +238,7 @@ export default function LaporanPendapatanPage() {
 
       {/* 1. METRIK RINGKASAN FINANSIAL */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        
+
         {/* Total Omset Gabungan */}
         <div className="bg-gradient-to-br from-[#ccff00]/20 to-[#141e1b] border border-[#ccff00]/40 rounded-2xl p-5 relative overflow-hidden">
           <div className="flex items-center justify-between mb-2">
@@ -291,7 +297,7 @@ export default function LaporanPendapatanPage() {
 
       {/* 3. TABEL DETAIL TRANSAKSI */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
+
         {/* Detail Lapangan */}
         <div className="bg-[#141e1b] border border-white/10 rounded-2xl p-4 space-y-3">
           <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
