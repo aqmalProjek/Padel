@@ -29,7 +29,10 @@ import {
   Mail,
   Calendar as CalendarIcon,
   BellRing,
-  Coins
+  Coins,
+  ArrowRightLeft,
+  SquareActivity,
+  Flag
 } from 'lucide-react';
 
 interface Booking {
@@ -118,6 +121,21 @@ export default function DashboardKasirPage() {
   const [notifModalBooking, setNotifModalBooking] = useState<Booking | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // State Baru
+  const [blockedDates, setBlockedDates] = useState<{ court_id: string, date: string }[]>([]);
+  const [switchCourtModal, setSwitchCourtModal] = useState<Booking | null>(null);
+  const [blockCourtModal, setBlockCourtModal] = useState<{ date: string } | null>(null);
+  const [submittingSwitch, setSubmittingSwitch] = useState(false);
+
+
+  const fetchBlockedDates = async (dateStr: string) => {
+    const { data } = await supabase
+      .from('court_blocks')
+      .select('court_id, date')
+      .eq('date', dateStr);
+    if (data) setBlockedDates(data);
+  };
 
   // Helper Format
   const formatPhoneNumberToWA = (phone: string) => {
@@ -259,12 +277,45 @@ export default function DashboardKasirPage() {
     };
   };
 
+
   // 1. Fetch Master Lapangan
   const fetchCourts = async () => {
     const { data } = await supabase.from('courts').select('*').eq('is_active', true).order('name', { ascending: true });
     if (data && data.length > 0) {
       setCourts(data as Court[]);
     }
+  };
+
+  // Logic: Pindah Lapangan
+  const handleSwitchCourt = async (booking: Booking, newCourtId: string) => {
+    setSubmittingSwitch(true);
+    const { error } = await supabase
+      .from('bookings')
+      .update({ court_id: newCourtId })
+      .eq('id', booking.id);
+
+    if (!error) {
+      setSwitchCourtModal(null);
+      fetchBookings();
+    } else {
+      alert("Gagal pindah lapangan: " + error.message);
+    }
+    setSubmittingSwitch(false);
+  };
+
+  const isCourtBlocked = (courtId: string, dateStr: string) => {
+    return blockedDates.some(b => b.court_id === courtId && b.date === dateStr);
+  };
+
+  // Logic: Toggle Blokir Lapangan
+  const toggleBlockCourt = async (courtId: string, dateStr: string) => {
+    const blocked = isCourtBlocked(courtId, dateStr);
+    if (blocked) {
+      await supabase.from('court_blocks').delete().eq('court_id', courtId).eq('date', dateStr);
+    } else {
+      await supabase.from('court_blocks').insert({ court_id: courtId, date: dateStr });
+    }
+    fetchBlockedDates(dateStr);
   };
 
   // 2. Fetch Data Booking Halaman Dashboard
@@ -291,7 +342,7 @@ export default function DashboardKasirPage() {
       .from('bookings')
       .select('court_id, start_time, end_time, payment_status')
       .eq('booking_date', dateStr)
-      .in('payment_status', ['paid_cashier', 'paid_dp']);
+      .in('payment_status', ['paid_cashier', 'paid_dp']); // 👈 HANYA booking yang sudah di-ACC Kasir/Owner yang memblokir jam ini
 
     if (!error && data) {
       setManualExistingBookings(data as ExistingBooking[]);
@@ -300,6 +351,10 @@ export default function DashboardKasirPage() {
     }
     setLoadingSlots(false);
   };
+
+  useEffect(() => {
+    fetchBlockedDates(selectedDate);
+  }, [selectedDate]);
 
   useEffect(() => {
     fetchCourts();
@@ -325,6 +380,23 @@ export default function DashboardKasirPage() {
       fetchManualExistingBookings(manualDate);
     }
   }, [isModalOpen, manualDate]);
+
+
+  const handleApproveBooking = async (bookingId: string, customerName: string) => {
+    if (confirm(`Apakah Anda yakin ingin MENG-ACC booking atas nama ${customerName}? Slot jam ini akan resmi terkunci.`)) {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ payment_status: 'paid_dp' }) // atau 'paid_cashier' sesuai kebutuhan
+        .eq('id', bookingId);
+
+      if (!error) {
+        fetchBookings();
+        if (manualDate) fetchManualExistingBookings(manualDate);
+      } else {
+        alert('Gagal meng-ACC booking: ' + error.message);
+      }
+    }
+  };
 
   // 4. Logic Alokasi Lapangan Otomatis untuk Modal Manual
   const getAvailableCourtForSlot = (startTimeStr: string, durationMins: number) => {
@@ -828,6 +900,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                         {b.payment_status === 'paid_dp' ? 'NOTIF REQ PELUNASAN' : 'NOTIF REQ BAYAR/DP'}
                       </button>
                     )}
+
                     {b.payment_status === 'paid_cashier' ? (
 
                       <button
@@ -838,12 +911,13 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                         <Printer className="w-4 h-4 text-[#ccff00]" />
                       </button>
                     ) : (null)}
+
                     <span
                       className={`px-3 py-2 rounded-xl text-xs font-bold border ${b.payment_status === 'paid_cashier'
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                          : b.payment_status === 'paid_dp'
-                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                            : 'bg-zinc-500/10 border-zinc-500/30 text-zinc-400'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                        : b.payment_status === 'paid_dp'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          : 'bg-zinc-500/10 border-zinc-500/30 text-zinc-400'
                         }`}
                     >
                       {b.payment_status === 'paid_cashier'
@@ -852,6 +926,19 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           ? 'DP PAID'
                           : 'PENDING'}
                     </span>
+
+                    {b.payment_status === 'pending' && (
+                      <button
+                        onClick={() => handleApproveBooking(b.id, b.customer_name)}
+                        className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                        title="Setujui booking dan kunci slot jam ini"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        ACC & KUNCI
+                      </button>
+                    )}
+
+
                   </div>
                 ) : (
                   <div>
@@ -901,16 +988,30 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
 
                         {/* Tombol DP jika status pending */}
                         {b.payment_status === 'pending' && (
-                          <button
-                            onClick={() => {
-                              setPayModalBooking(b);
-                              setIsDpProcess(true);
-                              setPayCashReceived('');
-                            }}
-                            className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 font-bold px-3 py-2 rounded-xl text-xs transition-all"
-                          >
-                            Bayar DP
-                          </button>
+                          <>
+                            <button
+                              onClick={() => {
+                                setPayModalBooking(b);
+                                setIsDpProcess(true);
+                                setPayCashReceived('');
+                              }}
+                              className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                            >
+                              Bayar DP
+                            </button>
+
+
+                            {b.payment_status === 'pending' && (
+                              <button
+                                onClick={() => handleApproveBooking(b.id, b.customer_name)}
+                                className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                                title="Setujui booking dan kunci slot jam ini"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                ACC & KUNCI 
+                              </button>
+                            )}
+                          </>
                         )}
 
                         <button
@@ -977,8 +1078,8 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       type="button"
                       onClick={() => setSelectedPayMethod(m as any)}
                       className={`p-2 rounded-xl text-[10px] font-bold uppercase transition-all ${selectedPayMethod === m
-                          ? 'bg-[#ccff00] text-zinc-950'
-                          : 'bg-white/5 text-zinc-400 border border-white/10'
+                        ? 'bg-[#ccff00] text-zinc-950'
+                        : 'bg-white/5 text-zinc-400 border border-white/10'
                         }`}
                     >
                       {m}
@@ -1154,8 +1255,8 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                             type="button"
                             onClick={() => setManualDate(d.isoDate)}
                             className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition-all ${isSelected
-                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_15px_rgba(204,255,0,0.25)]'
-                                : 'bg-white/5 border-white/10 text-zinc-400 hover:border-white/20'
+                              ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_15px_rgba(204,255,0,0.25)]'
+                              : 'bg-white/5 border-white/10 text-zinc-400 hover:border-white/20'
                               }`}
                           >
                             <span className="block text-[10px] uppercase font-semibold">{d.dayName}</span>
@@ -1224,10 +1325,10 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           disabled={slot.isPassed}
                           onClick={() => setManualSelectedTime(slot.time)}
                           className={`p-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all ${slot.isPassed
-                              ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
-                              : isSelected
-                                ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
-                                : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
+                            ? 'bg-white/5 border-transparent text-zinc-600 line-through cursor-not-allowed opacity-40'
+                            : isSelected
+                              ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 font-black shadow-[0_0_12px_rgba(204,255,0,0.3)]'
+                              : 'bg-white/5 border-white/10 text-zinc-200 hover:border-[#ccff00]/50'
                             }`}
                         >
                           <span className="text-xs font-bold">{slot.time}</span>
@@ -1267,8 +1368,8 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       type="button"
                       onClick={() => setManualDurationMins(mins)}
                       className={`py-2.5 rounded-2xl border text-xs font-bold transition-all ${manualDurationMins === mins
-                          ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 shadow-[0_0_10px_rgba(204,255,0,0.2)]'
-                          : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
+                        ? 'bg-[#ccff00] border-[#ccff00] text-zinc-950 shadow-[0_0_10px_rgba(204,255,0,0.2)]'
+                        : 'bg-white/5 border-white/10 text-zinc-300 hover:border-white/20'
                         }`}
                     >
                       {mins} min
@@ -1449,6 +1550,115 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
               </button>
 
             </form>
+
+          </div>
+        </div>
+      )}
+
+
+      {/* 🔁 MODAL GANTI LAPANGAN */}
+      {switchCourtModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl space-y-4">
+
+            {/* Header Modal */}
+            <div className="flex justify-between items-center border-b border-white/10 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-white flex items-center gap-2 uppercase tracking-wide">
+                  <ArrowRightLeft className="w-4 h-4 text-[#ccff00]" /> Pindah Lapangan
+                </h3>
+                <p className="text-[10px] text-zinc-400 mt-0.5">
+                  Booking: <strong className="text-white">{switchCourtModal.customer_name}</strong> ({switchCourtModal.start_time.slice(0, 5)} - {switchCourtModal.end_time.slice(0, 5)})
+                </p>
+              </div>
+              <button
+                onClick={() => setSwitchCourtModal(null)}
+                className="p-1 rounded-full bg-white/5 text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* List Lapangan & Pengecekan Bentrok */}
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
+                Pilih Lapangan Tujuan:
+              </label>
+
+              {courts.map((c) => {
+                // 1. Cek apakah lapangan ini adalah lapangan yang sedang digunakan saat ini
+                const isCurrentCourt = switchCourtModal.court_id === c.id;
+
+                // 2. Cek apakah lapangan ini sedang diblokir/dimatikan pada tanggal tersebut
+                const isBlocked = isCourtBlocked(c.id, switchCourtModal.booking_date);
+
+                // 3. Konversi waktu booking yang ingin dipindah ke menit
+                const reqStart = timeToMinutes(switchCourtModal.start_time);
+                const reqEnd = timeToMinutes(switchCourtModal.end_time);
+
+                // 4. Cek bentrok dengan jadwal booking lain (Kecuali booking dirinya sendiri)
+                const isOccupied = bookings.some((b) => {
+                  // Hanya cek untuk lapangan target yang sama dan statusnya bukan dibatalkan
+                  if (b.court_id !== c.id || b.id === switchCourtModal.id || b.payment_status === 'cancelled') {
+                    return false;
+                  }
+
+                  const bStart = timeToMinutes(b.start_time);
+                  const bEnd = timeToMinutes(b.end_time);
+
+                  // Rumus bentrok rentang waktu: (Start1 < End2) DAN (End1 > Start2)
+                  return reqStart < bEnd && reqEnd > bStart;
+                });
+
+                // Disable jika lapangan sama, diblokir, atau jadwalnya bentrok
+                const isDisabled = isCurrentCourt || isBlocked || isOccupied;
+
+                return (
+                  <button
+                    key={c.id}
+                    disabled={isDisabled || submittingSwitch}
+                    onClick={() => handleSwitchCourt(switchCourtModal, c.id)}
+                    className={`w-full p-3 rounded-2xl border text-xs font-bold flex items-center justify-between transition-all ${isCurrentCourt
+                      ? 'bg-white/5 border-white/5 text-zinc-500 cursor-not-allowed'
+                      : isDisabled
+                        ? 'bg-rose-500/5 border-rose-500/20 text-rose-400/50 cursor-not-allowed line-through'
+                        : 'bg-white/5 border-white/10 text-white hover:border-[#ccff00] hover:bg-[#ccff00]/10'
+                      }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold">{c.name}</span>
+                      {isCurrentCourt && (
+                        <span className="text-[9px] bg-white/10 text-zinc-400 px-2 py-0.5 rounded-full font-normal">
+                          (Lapangan Saat Ini)
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Status / Badge */}
+                    <div>
+                      {isBlocked ? (
+                        <span className="text-[9px] font-extrabold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20">
+                          DIBLOKIR / NON-AKTIF
+                        </span>
+                      ) : isOccupied ? (
+                        <span className="text-[9px] font-extrabold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                          JADWAL TERISI (BENTROK)
+                        </span>
+                      ) : !isCurrentCourt ? (
+                        <span className="text-[9px] font-extrabold text-[#ccff00] bg-[#ccff00]/10 px-2 py-0.5 rounded-md border border-[#ccff00]/20">
+                          TERSEDIA
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Footer Info */}
+            <div className="pt-2 border-t border-white/10 text-[10px] text-zinc-400 text-center">
+              *Pilihan lapangan yang bentrok atau diblokir otomatis ter-disable.
+            </div>
 
           </div>
         </div>
