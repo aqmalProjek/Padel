@@ -476,12 +476,9 @@ export default function DashboardKasirPage() {
 
     const now = new Date();
     const isToday = manualDate === getTodayString();
-
-    // 1. Ambil jam dan menit saat ini
+    
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
-
-    // 2. Hitung total menit real-time saat ini (contoh: 10:15 -> 10 * 60 + 15 = 615 menit)
     const currentTotalMinutes = currentHour * 60 + currentMinute;
 
     for (let h = startHour; h <= endHour; h++) {
@@ -489,25 +486,31 @@ export default function DashboardKasirPage() {
       if (h + durationHours > endHour + 1) continue;
 
       const timeString = `${String(h).padStart(2, '0')}:00`;
-      let isPassed = false;
+      const slotTotalMinutes = h * 60;
 
-      // ⏱️ REVISI LOGIKA: Toleransi 45 Menit untuk Tanggal Hari Ini
-      if (isToday) {
-        const slotTotalMinutes = h * 60; // Jam slot dalam total menit (misal 10:00 = 600 menit)
-
-        // Slot jam h baru dianggap mati jika waktu sekarang > (slot + 45 menit)
-        // Jam 10:00 s/d 10:45 -> Masih Buka (currentTotalMinutes <= 645)
-        // Jam 10:46 ke atas  -> Mati / Disabled (currentTotalMinutes > 645)
-        if (currentTotalMinutes > slotTotalMinutes + 45) {
-          isPassed = true;
-        }
+      // 1. Cek Toleransi Waktu (45 Menit)
+      let isTimeOver = false;
+      if (isToday && currentTotalMinutes > slotTotalMinutes + 45) {
+        isTimeOver = true;
       }
 
-      let availableCourt = null;
-      if (!isPassed) {
-        availableCourt = getAvailableCourtForSlot(timeString, manualDurationMins);
+      // 2. Cek Ketersediaan Lapangan
+      let availableCourt = getAvailableCourtForSlot(timeString, manualDurationMins);
+
+      // 3. Tentukan Status IsPassed / Disabled
+      // Slot HANYA mati jika: Waktu sudah lewat >45 mnt ATAU (Waktu belum lewat 45 mnt tapi lapangan tidak tersedia & bukan di jam berjalan)
+      let isPassed = false;
+      if (isTimeOver) {
+        isPassed = true;
+      } else {
+        // Jika lapangan tidak tersedia:
         if (!availableCourt) {
-          isPassed = true;
+          // Khusus jam berjalan (misal jam 10:00 - 10:45), paksa TETAP BISA DIPILIH untuk perpanjang/nambah jam
+          const isCurrentActiveSlot = isToday && currentTotalMinutes >= slotTotalMinutes && currentTotalMinutes <= slotTotalMinutes + 45;
+          
+          if (!isCurrentActiveSlot) {
+            isPassed = true;
+          }
         }
       }
 
@@ -529,7 +532,7 @@ export default function DashboardKasirPage() {
         normalPrice,
         effectivePrice,
         isDiscounted,
-        availableCourt,
+        availableCourt: availableCourt || courts[0], // Gunakan court default jika null agar form submit tidak error
       });
     }
     return slots;
