@@ -174,14 +174,44 @@ export default function DashboardKasirPage() {
     cashReceivedVal?: number,
     cashChangeVal?: number
   ) => {
-    const baseHeight = 135;
+    const baseHeight = 145; // Sedikit dinaikkan agar muat baris tanggal baru
     const doc = new jsPDF({
       unit: 'mm',
       format: [72, baseHeight],
     });
 
     const orderNum = `BK-${bookingData.id.slice(0, 6).toUpperCase()}`;
-    const printedAt = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    
+    // 📅 1. WAKTU DI CETAK STRUK (Tanggal & Jam saat ini)
+    const now = new Date();
+    const printDateFormatted = now.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const printTimeFormatted = now.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const printedAt = `${printDateFormatted} ${printTimeFormatted}`;
+
+    // 📅 2. TANGGAL TRANSAKSI / BOOKING DIBUAT (created_at)
+    const orderDateFormatted = bookingData.created_at
+      ? new Date(bookingData.created_at).toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        })
+      : printDateFormatted;
+
+    // 📅 3. TANGGAL MAIN / JADWAL MAIN
+    const playDateFormatted = bookingData.booking_date
+      ? new Date(bookingData.booking_date).toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : bookingData.booking_date;
 
     let y = 8;
 
@@ -199,23 +229,26 @@ export default function DashboardKasirPage() {
     y += 4;
     doc.text('=================================', 36, y, { align: 'center' });
 
-    // Details Booking
+    // Details Booking & Tanggal Struk
     y += 5;
-    doc.setFontSize(9);
-    doc.text(`No. Order : ${orderNum}`, 3, y);
+    doc.setFontSize(8.5);
+    doc.text(`No. Order  : ${orderNum}`, 3, y);
     y += 4.5;
-    doc.text(`Tgl Cetak : ${printedAt}`, 3, y);
+    doc.text(`Tgl Order : ${orderDateFormatted}`, 3, y); // 👈 Tanggal Order dibuat
+    y += 4.5;
+    doc.text(`Tgl Cetak : ${printedAt}`, 3, y);          // 👈 Tanggal & Jam Struk dicetak
     y += 4.5;
     doc.text(`Pemesan   : ${bookingData.customer_name}`, 3, y);
     y += 4;
     doc.text('---------------------------------', 36, y, { align: 'center' });
 
+    // Details Lapangan & Jadwal Main
     y += 5;
     doc.setFont('courier', 'bold');
     doc.text(`${bookingData.courts?.name || 'Lapangan Padel'}`, 3, y);
     y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.text(`Tanggal   : ${bookingData.booking_date}`, 3, y);
+    doc.text(`Tgl Main  : ${playDateFormatted}`, 3, y);     // 👈 Tanggal Main Lapangan
     y += 4.5;
     doc.text(`Jam Main  : ${bookingData.start_time.slice(0, 5)} - ${bookingData.end_time.slice(0, 5)} (${bookingData.duration} Jam)`, 3, y);
     y += 4;
@@ -258,10 +291,9 @@ export default function DashboardKasirPage() {
     doc.setFontSize(8);
     doc.text('Selamat Bermain di Eksdi Padel!', 36, y, { align: 'center' });
 
-    // 🚀 FITUR AUTO PRINT DIALOG (Tanpa Tab Baru / Langsung Muncul Print Dialog)
+    // 🚀 FITUR AUTO PRINT DIALOG (Iframe Tersembunyi)
     const pdfBlobUrl: any = doc.output('bloburl');
 
-    // Buat elemen iframe tersembunyi untuk memicu dialog print browser
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
     iframe.src = pdfBlobUrl;
@@ -271,7 +303,6 @@ export default function DashboardKasirPage() {
       try {
         iframe.contentWindow?.print();
       } catch (e) {
-        // Fallback jika iframe print diblokir, buka window baru otomatis
         window.open(pdfBlobUrl, '_blank');
       }
     };
