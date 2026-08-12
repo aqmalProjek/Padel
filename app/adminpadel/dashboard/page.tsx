@@ -181,7 +181,7 @@ export default function DashboardKasirPage() {
     });
 
     const orderNum = `BK-${bookingData.id.slice(0, 6).toUpperCase()}`;
-    
+
     // 📅 1. WAKTU DI CETAK STRUK (Tanggal & Jam saat ini)
     const now = new Date();
     const printDateFormatted = now.toLocaleDateString('id-ID', {
@@ -198,19 +198,19 @@ export default function DashboardKasirPage() {
     // 📅 2. TANGGAL TRANSAKSI / BOOKING DIBUAT (created_at)
     const orderDateFormatted = bookingData.created_at
       ? new Date(bookingData.created_at).toLocaleDateString('id-ID', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-        })
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      })
       : printDateFormatted;
 
     // 📅 3. TANGGAL MAIN / JADWAL MAIN
     const playDateFormatted = bookingData.booking_date
       ? new Date(bookingData.booking_date).toLocaleDateString('id-ID', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        })
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
       : bookingData.booking_date;
 
     let y = 8;
@@ -476,7 +476,13 @@ export default function DashboardKasirPage() {
 
     const now = new Date();
     const isToday = manualDate === getTodayString();
+
+    // 1. Ambil jam dan menit saat ini
     const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    // 2. Hitung total menit real-time saat ini (contoh: 10:15 -> 10 * 60 + 15 = 615 menit)
+    const currentTotalMinutes = currentHour * 60 + currentMinute;
 
     for (let h = startHour; h <= endHour; h++) {
       const durationHours = manualDurationMins / 60;
@@ -485,8 +491,16 @@ export default function DashboardKasirPage() {
       const timeString = `${String(h).padStart(2, '0')}:00`;
       let isPassed = false;
 
-      if (isToday && h <= currentHour) {
-        isPassed = true;
+      // ⏱️ REVISI LOGIKA: Toleransi 45 Menit untuk Tanggal Hari Ini
+      if (isToday) {
+        const slotTotalMinutes = h * 60; // Jam slot dalam total menit (misal 10:00 = 600 menit)
+
+        // Slot jam h baru dianggap mati jika waktu sekarang > (slot + 45 menit)
+        // Jam 10:00 s/d 10:45 -> Masih Buka (currentTotalMinutes <= 645)
+        // Jam 10:46 ke atas  -> Mati / Disabled (currentTotalMinutes > 645)
+        if (currentTotalMinutes > slotTotalMinutes + 45) {
+          isPassed = true;
+        }
       }
 
       let availableCourt = null;
@@ -1039,7 +1053,7 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                                 title="Setujui booking dan kunci slot jam ini"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                ACC & KUNCI 
+                                ACC & KUNCI
                               </button>
                             )}
                           </>
