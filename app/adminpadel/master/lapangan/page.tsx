@@ -198,7 +198,7 @@ export default function MasterLapanganPage() {
                 className="w-full bg-[#ccff00] text-zinc-950 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2"
               >
                 {savingId === court.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                SIMPAN SETTINGAN HARGA
+                SIMPAN SETTINGAN HARGA.
               </button>
             </div>
           ))}
