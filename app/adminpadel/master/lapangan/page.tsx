@@ -67,7 +67,7 @@ export default function MasterLapanganPage() {
             <Activity className="w-5 h-5" /> Master Pengaturan Harga Lapangan
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Atur skema harga Sesi 1 (07.00 - 14.00), Sesi 2 (15.00 - 21.00), dan status diskon aktif.
+            Atur skema harga Sesi 1 (07.00 - 14.00), Sesi 2 (15.00 - 21.00), dan status diskon aktif. (harga weekend full ke sesi 2)
           </p>
         </div>
       </div>
@@ -145,7 +145,7 @@ export default function MasterLapanganPage() {
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-[#ccff00]" />
-                    <span className="text-xs font-bold text-white uppercase">Sesi 2 (15.00 - 21.00)</span>
+                    <span className="text-xs font-bold text-white uppercase">Sesi 2 (15.00 - 21.00) / (Harga Weekend)</span>
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input

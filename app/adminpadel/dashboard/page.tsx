@@ -128,7 +128,6 @@ export default function DashboardKasirPage() {
   const [blockCourtModal, setBlockCourtModal] = useState<{ date: string } | null>(null);
   const [submittingSwitch, setSubmittingSwitch] = useState(false);
 
-
   const fetchBlockedDates = async (dateStr: string) => {
     const { data } = await supabase
       .from('court_blocks')
@@ -174,7 +173,7 @@ export default function DashboardKasirPage() {
     cashReceivedVal?: number,
     cashChangeVal?: number
   ) => {
-    const baseHeight = 145; // Sedikit dinaikkan agar muat baris tanggal baru
+    const baseHeight = 145;
     const doc = new jsPDF({
       unit: 'mm',
       format: [72, baseHeight],
@@ -182,7 +181,6 @@ export default function DashboardKasirPage() {
 
     const orderNum = `BK-${bookingData.id.slice(0, 6).toUpperCase()}`;
 
-    // 📅 1. WAKTU DI CETAK STRUK (Tanggal & Jam saat ini)
     const now = new Date();
     const printDateFormatted = now.toLocaleDateString('id-ID', {
       day: '2-digit',
@@ -195,7 +193,6 @@ export default function DashboardKasirPage() {
     });
     const printedAt = `${printDateFormatted} ${printTimeFormatted}`;
 
-    // 📅 2. TANGGAL TRANSAKSI / BOOKING DIBUAT (created_at)
     const orderDateFormatted = bookingData.created_at
       ? new Date(bookingData.created_at).toLocaleDateString('id-ID', {
         day: '2-digit',
@@ -204,7 +201,6 @@ export default function DashboardKasirPage() {
       })
       : printDateFormatted;
 
-    // 📅 3. TANGGAL MAIN / JADWAL MAIN
     const playDateFormatted = bookingData.booking_date
       ? new Date(bookingData.booking_date).toLocaleDateString('id-ID', {
         day: '2-digit',
@@ -215,7 +211,6 @@ export default function DashboardKasirPage() {
 
     let y = 8;
 
-    // Design Header Struk
     doc.setFont('courier', 'bold');
     doc.setFontSize(13);
     doc.text('EKSDI PADEL COURTS', 36, y, { align: 'center' });
@@ -229,32 +224,29 @@ export default function DashboardKasirPage() {
     y += 4;
     doc.text('=================================', 36, y, { align: 'center' });
 
-    // Details Booking & Tanggal Struk
     y += 5;
     doc.setFontSize(8.5);
     doc.text(`No. Order  : ${orderNum}`, 3, y);
     y += 4.5;
-    doc.text(`Tgl Order : ${orderDateFormatted}`, 3, y); // 👈 Tanggal Order dibuat
+    doc.text(`Tgl Order : ${orderDateFormatted}`, 3, y);
     y += 4.5;
-    doc.text(`Tgl Cetak : ${printedAt}`, 3, y);          // 👈 Tanggal & Jam Struk dicetak
+    doc.text(`Tgl Cetak : ${printedAt}`, 3, y);
     y += 4.5;
     doc.text(`Pemesan   : ${bookingData.customer_name}`, 3, y);
     y += 4;
     doc.text('---------------------------------', 36, y, { align: 'center' });
 
-    // Details Lapangan & Jadwal Main
     y += 5;
     doc.setFont('courier', 'bold');
     doc.text(`${bookingData.courts?.name || 'Lapangan Padel'}`, 3, y);
     y += 4.5;
     doc.setFont('courier', 'normal');
-    doc.text(`Tgl Main  : ${playDateFormatted}`, 3, y);     // 👈 Tanggal Main Lapangan
+    doc.text(`Tgl Main  : ${playDateFormatted}`, 3, y);
     y += 4.5;
     doc.text(`Jam Main  : ${bookingData.start_time.slice(0, 5)} - ${bookingData.end_time.slice(0, 5)} (${bookingData.duration} Jam)`, 3, y);
     y += 4;
     doc.text('---------------------------------', 36, y, { align: 'center' });
 
-    // Summary Pembayaran
     y += 5;
     doc.text(`Total Tagihan : ${formatRupiah(bookingData.total_price)}`, 3, y);
     y += 4.5;
@@ -279,7 +271,6 @@ export default function DashboardKasirPage() {
       doc.text(`Sisa Wajib    : ${formatRupiah(bookingData.total_price - dpPaid)}`, 3, y);
     }
 
-    // Footer Struk
     y += 6;
     doc.text('=================================', 36, y, { align: 'center' });
     y += 5;
@@ -291,7 +282,6 @@ export default function DashboardKasirPage() {
     doc.setFontSize(8);
     doc.text('Selamat Bermain di Eksdi Padel!', 36, y, { align: 'center' });
 
-    // 🚀 FITUR AUTO PRINT DIALOG (Iframe Tersembunyi)
     const pdfBlobUrl: any = doc.output('bloburl');
 
     const iframe = document.createElement('iframe');
@@ -307,7 +297,6 @@ export default function DashboardKasirPage() {
       }
     };
   };
-
 
   // 1. Fetch Master Lapangan
   const fetchCourts = async () => {
@@ -373,7 +362,7 @@ export default function DashboardKasirPage() {
       .from('bookings')
       .select('court_id, start_time, end_time, payment_status')
       .eq('booking_date', dateStr)
-      .in('payment_status', ['paid_cashier', 'paid_dp']); // 👈 HANYA booking yang sudah di-ACC Kasir/Owner yang memblokir jam ini
+      .in('payment_status', ['paid_cashier', 'paid_dp']);
 
     if (!error && data) {
       setManualExistingBookings(data as ExistingBooking[]);
@@ -412,12 +401,11 @@ export default function DashboardKasirPage() {
     }
   }, [isModalOpen, manualDate]);
 
-
   const handleApproveBooking = async (bookingId: string, customerName: string) => {
     if (confirm(`Apakah Anda yakin ingin MENG-ACC booking atas nama ${customerName}? Slot jam ini akan resmi terkunci.`)) {
       const { error } = await supabase
         .from('bookings')
-        .update({ payment_status: 'paid_dp' }) // atau 'paid_cashier' sesuai kebutuhan
+        .update({ payment_status: 'paid_dp' })
         .eq('id', bookingId);
 
       if (!error) {
@@ -468,6 +456,18 @@ export default function DashboardKasirPage() {
     return dates;
   };
 
+  // 🛠️ HELPER HITUNG HARGA (TERMASUK SABTU & MINGGU MENGGUNAKAN SESI 2)
+  const getCalculatedPrice = (timeStr: string, court: Court, dateStr: string) => {
+    const dayOfWeek = new Date(dateStr).getDay(); // 0 = Minggu, 6 = Sabtu
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    if (isWeekend) {
+      return Number(court.price_session_2);
+    }
+
+    return getHourlyRate(timeStr, court);
+  };
+
   // 6. Generate Time Slots Modal Manual
   const generateTimeSlots = () => {
     const slots = [];
@@ -481,6 +481,9 @@ export default function DashboardKasirPage() {
     const currentMinute = now.getMinutes();
     const currentTotalMinutes = currentHour * 60 + currentMinute;
 
+    const dayOfWeek = new Date(manualDate).getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
     for (let h = startHour; h <= endHour; h++) {
       const durationHours = manualDurationMins / 60;
       if (h + durationHours > endHour + 1) continue;
@@ -488,24 +491,18 @@ export default function DashboardKasirPage() {
       const timeString = `${String(h).padStart(2, '0')}:00`;
       const slotTotalMinutes = h * 60;
 
-      // 1. Cek Toleransi Waktu (45 Menit)
       let isTimeOver = false;
       if (isToday && currentTotalMinutes > slotTotalMinutes + 45) {
         isTimeOver = true;
       }
 
-      // 2. Cek Ketersediaan Lapangan
       let availableCourt = getAvailableCourtForSlot(timeString, manualDurationMins);
 
-      // 3. Tentukan Status IsPassed / Disabled
-      // Slot HANYA mati jika: Waktu sudah lewat >45 mnt ATAU (Waktu belum lewat 45 mnt tapi lapangan tidak tersedia & bukan di jam berjalan)
       let isPassed = false;
       if (isTimeOver) {
         isPassed = true;
       } else {
-        // Jika lapangan tidak tersedia:
         if (!availableCourt) {
-          // Khusus jam berjalan (misal jam 10:00 - 10:45), paksa TETAP BISA DIPILIH untuk perpanjang/nambah jam
           const isCurrentActiveSlot = isToday && currentTotalMinutes >= slotTotalMinutes && currentTotalMinutes <= slotTotalMinutes + 45;
           
           if (!isCurrentActiveSlot) {
@@ -520,10 +517,10 @@ export default function DashboardKasirPage() {
       let effectivePrice = 125000;
 
       if (refCourt) {
-        const isS1 = h >= 7 && h < 15;
+        const isS1 = !isWeekend && (h >= 7 && h < 15);
         normalPrice = isS1 ? Number(refCourt.price_session_1) : Number(refCourt.price_session_2);
         isDiscounted = isS1 ? refCourt.is_discount_session_1 : refCourt.is_discount_session_2;
-        effectivePrice = getHourlyRate(timeString, refCourt);
+        effectivePrice = getCalculatedPrice(timeString, refCourt, manualDate);
       }
 
       slots.push({
@@ -532,7 +529,7 @@ export default function DashboardKasirPage() {
         normalPrice,
         effectivePrice,
         isDiscounted,
-        availableCourt: availableCourt || courts[0], // Gunakan court default jika null agar form submit tidak error
+        availableCourt: availableCourt || courts[0],
       });
     }
     return slots;
@@ -563,10 +560,9 @@ export default function DashboardKasirPage() {
 
   const manualSelectedCourt = manualSelectedTime ? getAvailableCourtForSlot(manualSelectedTime, manualDurationMins) : null;
   const manualDurationHours = manualDurationMins / 60;
-  const manualHourlyRate = (manualSelectedTime && manualSelectedCourt) ? getHourlyRate(manualSelectedTime, manualSelectedCourt) : 0;
+  const manualHourlyRate = (manualSelectedTime && manualSelectedCourt) ? getCalculatedPrice(manualSelectedTime, manualSelectedCourt, manualDate) : 0;
   const manualTotalPrice = manualHourlyRate * manualDurationHours;
 
-  // Calculation untuk Modal Manual Bayar
   const numManualCashReceived = typeof manualFormData.cash_received === 'number' ? manualFormData.cash_received : 0;
   const targetManualPayAmount = manualFormData.payment_status === 'paid_dp' ? manualFormData.dp_amount : manualTotalPrice;
   const manualCashChange = manualFormData.payment_method === 'cash' ? Math.max(0, numManualCashReceived - targetManualPayAmount) : 0;
@@ -639,7 +635,6 @@ export default function DashboardKasirPage() {
     setSubmittingManual(false);
   };
 
-  // Calculation untuk Modal Bayar / Pelunasan
   const numPayCashReceived = typeof payCashReceived === 'number' ? payCashReceived : 0;
   const targetPayAmount = payModalBooking
     ? (isDpProcess ? dpInputAmount : payModalBooking.total_price - (payModalBooking.dp_amount || 0))
@@ -677,7 +672,6 @@ export default function DashboardKasirPage() {
       .eq('id', payModalBooking.id);
 
     if (!error) {
-      // Print Struk jsPDF Secara Otomatis
       printThermalReceiptWithjsPDF(
         payModalBooking,
         isDpProcess,
@@ -704,7 +698,6 @@ export default function DashboardKasirPage() {
     setUploading(true);
     let imageUrl = notifModalBooking.payment_proof_url || '';
 
-    // Upload Foto jika Kasir Memilih Foto Bukti
     if (selectedFile) {
       const fileExt = selectedFile.name.split('.').pop();
       const fileName = `proof_${notifModalBooking.id}_${Date.now()}.${fileExt}`;
@@ -759,7 +752,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
     setSelectedFile(null);
   };
 
-  // Handle Cancel Booking
   const handleCancelBooking = async (id: string, name: string) => {
     if (confirm(`Apakah kamu yakin ingin MEMBATALKAN booking atas nama ${name}?`)) {
       const { error } = await supabase
@@ -775,13 +767,11 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
     }
   };
 
-  // Metrik Harian
   const activeBookingsList = bookings.filter((b) => b.payment_status !== 'cancelled');
   const totalTersewa = activeBookingsList.reduce((acc, curr) => acc + curr.duration, 0);
   const totalEstimasiOmset = activeBookingsList.reduce((acc, curr) => acc + Number(curr.total_price), 0);
   const totalLunas = activeBookingsList.filter((b) => b.payment_status === 'paid_cashier').length;
 
-  // Filter Search
   const filteredBookings = bookings.filter(
     (b) =>
       b.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -907,7 +897,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                     </span>
                   </div>
 
-                  {/* Klik Nomor WA */}
                   <button
                     onClick={() => handleOpenWA(b.customer_phone, b.customer_name)}
                     className="text-xs text-zinc-400 hover:text-emerald-400 flex items-center gap-1.5 mt-1 transition-colors group"
@@ -986,7 +975,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       </button>
                     )}
 
-
                   </div>
                 ) : (
                   <div>
@@ -1000,16 +988,10 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           <Printer className="w-4 h-4 text-[#ccff00]" />
                         </button>
 
-
                         <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           Lunas ({b.payment_method?.toUpperCase()})
                         </span>
-
-
-
-                        {/* Print Cetak Ulang Struk via jsPDF */}
-
 
                         <button
                           onClick={() => handleCancelBooking(b.id, b.customer_name)}
@@ -1021,7 +1003,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        {/* Tombol Pelunasan / Bayar Kasir */}
                         <button
                           onClick={() => {
                             setPayModalBooking(b);
@@ -1034,7 +1015,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                           {b.payment_status === 'paid_dp' ? 'Pelunasan' : 'Bayar Kasir'}
                         </button>
 
-                        {/* Tombol DP jika status pending */}
                         {b.payment_status === 'pending' && (
                           <>
                             <button
@@ -1047,7 +1027,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                             >
                               Bayar DP
                             </button>
-
 
                             {b.payment_status === 'pending' && (
                               <button
@@ -1136,7 +1115,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                 </div>
               </div>
 
-              {/* 💵 INPUT TUNAI & KEMBALIAN (KHUSUS METODE CASH) */}
               {selectedPayMethod === 'cash' && (
                 <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 space-y-2">
                   <div>
@@ -1158,7 +1136,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                     </div>
                   </div>
 
-                  {/* Preset Tombol Cepat */}
                   <div className="grid grid-cols-4 gap-1">
                     <button
                       type="button"
@@ -1179,7 +1156,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                     ))}
                   </div>
 
-                  {/* Display Kembalian */}
                   <div className="flex justify-between items-center text-xs pt-1 border-t border-white/10 font-bold">
                     <span className="text-zinc-400">Kembalian:</span>
                     <span className={payCashChange >= 0 && numPayCashReceived >= targetPayAmount ? 'text-emerald-400' : 'text-zinc-500'}>
@@ -1529,7 +1505,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       </div>
                     </div>
 
-                    {/* Tombol Preset Cepat */}
                     <div className="grid grid-cols-4 gap-1">
                       <button
                         type="button"
@@ -1550,7 +1525,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       ))}
                     </div>
 
-                    {/* Display Kembalian */}
                     <div className="flex justify-between items-center text-xs pt-1 border-t border-white/10 font-bold">
                       <span className="text-zinc-400">Kembalian:</span>
                       <span className={manualCashChange >= 0 && numManualCashReceived >= targetManualPayAmount ? 'text-emerald-400' : 'text-zinc-500'}>
@@ -1603,13 +1577,11 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
         </div>
       )}
 
-
       {/* 🔁 MODAL GANTI LAPANGAN */}
       {switchCourtModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="w-full max-w-sm bg-[#141e1b] border border-white/10 rounded-3xl p-5 shadow-2xl space-y-4">
 
-            {/* Header Modal */}
             <div className="flex justify-between items-center border-b border-white/10 pb-3">
               <div>
                 <h3 className="text-sm font-black text-white flex items-center gap-2 uppercase tracking-wide">
@@ -1627,26 +1599,19 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
               </button>
             </div>
 
-            {/* List Lapangan & Pengecekan Bentrok */}
             <div className="space-y-2">
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
                 Pilih Lapangan Tujuan:
               </label>
 
               {courts.map((c) => {
-                // 1. Cek apakah lapangan ini adalah lapangan yang sedang digunakan saat ini
                 const isCurrentCourt = switchCourtModal.court_id === c.id;
-
-                // 2. Cek apakah lapangan ini sedang diblokir/dimatikan pada tanggal tersebut
                 const isBlocked = isCourtBlocked(c.id, switchCourtModal.booking_date);
 
-                // 3. Konversi waktu booking yang ingin dipindah ke menit
                 const reqStart = timeToMinutes(switchCourtModal.start_time);
                 const reqEnd = timeToMinutes(switchCourtModal.end_time);
 
-                // 4. Cek bentrok dengan jadwal booking lain (Kecuali booking dirinya sendiri)
                 const isOccupied = bookings.some((b) => {
-                  // Hanya cek untuk lapangan target yang sama dan statusnya bukan dibatalkan
                   if (b.court_id !== c.id || b.id === switchCourtModal.id || b.payment_status === 'cancelled') {
                     return false;
                   }
@@ -1654,11 +1619,9 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                   const bStart = timeToMinutes(b.start_time);
                   const bEnd = timeToMinutes(b.end_time);
 
-                  // Rumus bentrok rentang waktu: (Start1 < End2) DAN (End1 > Start2)
                   return reqStart < bEnd && reqEnd > bStart;
                 });
 
-                // Disable jika lapangan sama, diblokir, atau jadwalnya bentrok
                 const isDisabled = isCurrentCourt || isBlocked || isOccupied;
 
                 return (
@@ -1682,7 +1645,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
                       )}
                     </div>
 
-                    {/* Status / Badge */}
                     <div>
                       {isBlocked ? (
                         <span className="text-[9px] font-extrabold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20">
@@ -1703,7 +1665,6 @@ ${imageUrl ? imageUrl : '(Tidak ada foto lampiran)'}
               })}
             </div>
 
-            {/* Footer Info */}
             <div className="pt-2 border-t border-white/10 text-[10px] text-zinc-400 text-center">
               *Pilihan lapangan yang bentrok atau diblokir otomatis ter-disable.
             </div>

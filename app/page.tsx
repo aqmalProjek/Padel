@@ -22,8 +22,6 @@ import {
   ShieldCheck,
   Award,
   Zap,
-  Menu,
-  Footprints,
   CookieIcon
 } from 'lucide-react';
 import Image from 'next/image';
@@ -53,9 +51,9 @@ export default function EksdiPadelLinktree() {
   // State Modal & Booking
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
-  const [durationMinutes, setDurationMinutes] = useState<number>(60); // 60, 120, 180 min
+  const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [selectedTime, setSelectedTime] = useState<string>('');
-  const [selectedCourtId, setSelectedCourtId] = useState<string>('auto'); // 'auto' atau court.id spesifik
+  const [selectedCourtId, setSelectedCourtId] = useState<string>('auto');
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
@@ -87,7 +85,7 @@ export default function EksdiPadelLinktree() {
     fetchCourts();
   }, []);
 
-  // 2. Fetch Booking pada Tanggal yang Dipilih (Hanya yang LUNAS atau DP)
+  // 2. Fetch Booking pada Tanggal yang Dipilih
   const fetchBookingsForDate = async (dateStr: string) => {
     if (!dateStr) return;
     setLoadingSlots(true);
@@ -118,7 +116,7 @@ export default function EksdiPadelLinktree() {
     return h * 60 + m;
   };
 
-  // Cek Apakah Lapangan Spesifik Terkunci / Terisi pada Jam & Durasi Ini
+  // Cek Apakah Lapangan Spesifik Terkunci / Terisi
   const isCourtLockedForTime = (courtId: string, startTimeStr: string, durationMins: number) => {
     if (!startTimeStr) return false;
     const reqStart = timeToMinutes(startTimeStr);
@@ -132,12 +130,11 @@ export default function EksdiPadelLinktree() {
       const bStart = timeToMinutes(b.start_time);
       const bEnd = timeToMinutes(b.end_time);
 
-      // Rumus Overlap Check
       return reqStart < bEnd && reqEnd > bStart;
     });
   };
 
-  // 3. Cari Lapangan Otomatis yang Masih Kosong (Jika Mode 'auto')
+  // 3. Cari Lapangan Otomatis yang Masih Kosong
   const getAutoAvailableCourt = (startTimeStr: string, durationMins: number) => {
     if (!activeCourts || activeCourts.length === 0) return null;
     const sortedCourts = [...activeCourts].sort((a, b) => a.name.localeCompare(b.name));
@@ -146,10 +143,9 @@ export default function EksdiPadelLinktree() {
       const locked = isCourtLockedForTime(court.id, startTimeStr, durationMins);
       if (!locked) return court;
     }
-    return null; // Semua terisi
+    return null;
   };
 
-  // Mendapatkan Lapangan Terpilih Aktual (Otomatis / Manual)
   const getFinalSelectedCourt = () => {
     if (!selectedTime) return null;
 
@@ -179,7 +175,21 @@ export default function EksdiPadelLinktree() {
     return dates;
   };
 
-  // 5. Generate Slot Jam (06.00 - 21.00)
+  // 🛠️ HELPER HITUNG HARGA (TERMASUK WEEKEND / SABTU & MINGGU)
+  const getCalculatedPrice = (timeStr: string, court: Court, dateStr: string) => {
+    const dayOfWeek = new Date(dateStr).getDay(); // 0 = Minggu, 6 = Sabtu
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    // Jika Sabtu/Minggu, otomatis dipaksa Menggunakan Tarif Sesi 2
+    if (isWeekend) {
+      return Number(court.price_session_2);
+    }
+
+    // Jika Hari Biasa (Senin - Jumat), gunakan helper bawaan
+    return getHourlyRate(timeStr, court);
+  };
+
+  // 5. Generate Slot Jam (07.00 - 21.00) dengan Penyesuaian Sesi & Weekend
   const generateTimeSlots = () => {
     const slots = [];
     const startHour = 7;
@@ -188,6 +198,10 @@ export default function EksdiPadelLinktree() {
     const now = new Date();
     const isToday = selectedDate === getTodayString();
     const currentHour = now.getHours();
+
+    // Cek apakah tanggal terpilih adalah Weekend (Sabtu = 6, Minggu = 0)
+    const dayOfWeek = new Date(selectedDate).getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
     for (let h = startHour; h <= endHour; h++) {
       const durationHours = durationMinutes / 60;
@@ -200,7 +214,6 @@ export default function EksdiPadelLinktree() {
         isPassed = true;
       }
 
-      // Slot dianggap terisi penuh HANYA jika semua lapangan habis
       let hasAvailableCourt = false;
       if (!isPassed) {
         const court = getAutoAvailableCourt(timeString, durationMinutes);
@@ -217,10 +230,12 @@ export default function EksdiPadelLinktree() {
       let effectivePrice = 125000;
 
       if (refCourt) {
-        const isS1 = h >= 7 && h < 15;
+        // Jika weekend, Sesi 1 diabaikan, dipaksa menggunakan Sesi 2 seharian
+        const isS1 = !isWeekend && (h >= 7 && h < 15);
+        
         normalPrice = isS1 ? Number(refCourt.price_session_1) : Number(refCourt.price_session_2);
         isDiscounted = isS1 ? refCourt.is_discount_session_1 : refCourt.is_discount_session_2;
-        effectivePrice = getHourlyRate(timeString, refCourt);
+        effectivePrice = getCalculatedPrice(timeString, refCourt, selectedDate);
       }
 
       slots.push({
@@ -234,12 +249,11 @@ export default function EksdiPadelLinktree() {
     return slots;
   };
 
-  // Reset Jam Jika Pilihan Lapangan Manual Ternyata Bentrok
   useEffect(() => {
     if (selectedTime && selectedCourtId !== 'auto') {
       const locked = isCourtLockedForTime(selectedCourtId, selectedTime, durationMinutes);
       if (locked) {
-        setSelectedCourtId('auto'); // Kembalikan ke otomatis jika manual bentrok
+        setSelectedCourtId('auto');
       }
     }
   }, [selectedTime, durationMinutes, selectedDate, selectedCourtId]);
@@ -247,7 +261,9 @@ export default function EksdiPadelLinktree() {
   // Helper Hitung Waktu & Total
   const finalCourt = getFinalSelectedCourt();
   const durationHours = durationMinutes / 60;
-  const hourlyRate = (selectedTime && finalCourt) ? getHourlyRate(selectedTime, finalCourt) : 0;
+  const hourlyRate = (selectedTime && finalCourt) 
+    ? getCalculatedPrice(selectedTime, finalCourt, selectedDate) 
+    : 0;
   const totalPrice = hourlyRate * durationHours;
 
   const calculateEndTimeStr = (startTime: string, durationMins: number) => {
@@ -335,13 +351,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
   };
 
   const links = [
-    // {
-    //   id: 'community',
-    //   title: 'Join Trial Community RSVP',
-    //   subtitle: 'Gabung grup tanding & latihan rutin',
-    //   icon: <Users className="w-5 h-5 text-white" />,
-    //   href: `https://wa.me/${adminWA}?text=Halo%20Admin,%20saya%20mau%20tanya%20info%20Trial%20Community%20Eksdi%20Padel`,
-    // },
     {
       id: 'admin1',
       title: 'Chat Admin 1 (Booking & Informasi)',
@@ -367,20 +376,20 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
       href: 'https://www.instagram.com/eksdipadelcourts',
     },
     {
-    id: 'courtside',
-    title: 'Booking Courtside',
-    subtitle: 'Sewa lapangan & info klub',
-    icon: (
-      <Image 
-        src="/courtside.png" 
-        alt="Courtside Logo" 
-        width={24} 
-        height={24} 
-        className="w-6 h-6 object-contain rounded-md"
-      />
-    ),
-    href: 'https://courtside.id/clubs/eksdi-padel',
-  },
+      id: 'courtside',
+      title: 'Booking Courtside',
+      subtitle: 'Sewa lapangan & info klub',
+      icon: (
+        <Image 
+          src="/courtside.png" 
+          alt="Courtside Logo" 
+          width={24} 
+          height={24} 
+          className="w-6 h-6 object-contain rounded-md"
+        />
+      ),
+      href: 'https://courtside.id/clubs/eksdi-padel',
+    },
     {
       id: 'location',
       title: 'Location & Google Maps',
@@ -409,7 +418,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
         {/* HEADER PROFILE */}
         <header className="text-center w-full">
           <div className="relative w-24 h-24 mx-auto mb-4">
-            {/* Container Lingkaran Foto Logo */}
             <div className="w-full h-full rounded-full bg-[#141e1b] border-2 border-[#ccff00] overflow-hidden shadow-[0_0_20px_rgba(204,255,0,0.2)] flex items-center justify-center p-1">
               <img
                 src="/eksdipadel.png"
@@ -418,7 +426,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
               />
             </div>
 
-            {/* Badge Verified Check */}
             <div className="absolute bottom-0 right-0 bg-[#ccff00] text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs shadow-md z-10">
               <Check className="w-3.5 h-3.5 stroke-[3]" />
             </div>
@@ -532,12 +539,16 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
               <Clock className="w-3.5 h-3.5 text-[#ccff00]" />
             </div>
             <div className="flex justify-between text-[11px] text-zinc-300">
-              <span>Sesi 1 (Pagi - Siang: 07.00 - 14.00)</span>
+              <span>Senin - Jumat Sesi 1 (07.00 - 14.00)</span>
               <strong className="text-[#ccff00]">Promo Pagi</strong>
             </div>
             <div className="flex justify-between text-[11px] text-zinc-300">
-              <span>Sesi 2 (Sore - Malam: 15.00 - 21.00)</span>
+              <span>Senin - Jumat Sesi 2 (15.00 - 21.00)</span>
               <strong className="text-white">Reguler / Prime</strong>
+            </div>
+            <div className="flex justify-between text-[11px] text-zinc-300 pt-1 border-t border-white/5">
+              <span>Sabtu & Minggu (Weekend Full)</span>
+              <strong className="text-amber-400">Tarif Sesi 2</strong>
             </div>
           </div>
 
@@ -577,7 +588,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
 
       </div>
 
-      {/* ------------------ 📱 MODAL RESERVASI LAPANGAN RESPONSIF DENGAN PILIHAN LAPANGAN ------------------ */}
+      {/* ------------------ 📱 MODAL RESERVASI LAPANGAN RESPONSIF ------------------ */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm transition-all animate-fadeIn">
           <div className="w-full max-w-md bg-[#141e1b] border border-white/10 rounded-t-3xl md:rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto relative font-sans">
@@ -606,7 +617,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                   1. Pilih Tanggal Main
                 </span>
 
-                {/* 💻 DEKSTOP / TAB */}
+                {/* DEKSTOP */}
                 <div className="hidden md:block">
                   <input
                     type="date"
@@ -618,7 +629,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                   />
                 </div>
 
-                {/* 📱 MOBILE */}
+                {/* MOBILE */}
                 <div className="md:hidden">
                   {!showCustomDatePicker ? (
                     <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none items-center">
@@ -753,7 +764,7 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                 </div>
               </div>
 
-              {/* 4. PILIHAN LAPANGAN (OTOMATIS / MANUAL COURT) */}
+              {/* 4. PILIHAN LAPANGAN */}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
@@ -765,7 +776,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
-                  {/* Pilihan Otomatis */}
                   <button
                     type="button"
                     onClick={() => setSelectedCourtId('auto')}
@@ -778,7 +788,6 @@ Sistem telah mengalokasikan slot Anda. Mohon konfirmasi via WA ini. Terima kasih
                     <span className="text-[8px] uppercase tracking-wider opacity-80 block">Cari Kosong</span>
                   </button>
 
-                  {/* Pilihan Manual dari Master Lapangan Active */}
                   {activeCourts.map((court) => {
                     const isLocked = selectedTime ? isCourtLockedForTime(court.id, selectedTime, durationMinutes) : false;
                     const isSelected = selectedCourtId === court.id;
