@@ -19,7 +19,8 @@ import {
   Coins,
   Banknote,
   QrCode,
-  CreditCard
+  CreditCard,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -48,10 +49,19 @@ export default function KasirCafePage() {
   const { role, loading: authLoading } = useAuth();
   console.log('role', role, 'authLoading', authLoading);
 
+  // Helper tanggal YYYY-MM-DD
+  const getTodayString = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  
+  // 🎯 State Filter Tanggal (Default: Hari Ini)
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
 
   // Modal Pelunasan State
   const [payModalOrder, setPayModalOrder] = useState<PosOrder | null>(null);
@@ -59,16 +69,28 @@ export default function KasirCafePage() {
   const [payCashReceived, setPayCashReceived] = useState<number | ''>('');
   const [submittingPay, setSubmittingPay] = useState(false);
 
-  // Fetch Orders
+  // Fetch Orders berdasarkan Tanggal
   const fetchOrders = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+
+    let query = supabase
       .from('pos_orders')
       .select('*, pos_order_items(*)')
       .order('created_at', { ascending: false });
 
+    // Jika filter tanggal diisi (bukan 'all' / kosong)
+    if (selectedDate) {
+      const startOfDay = `${selectedDate}T00:00:00.000Z`;
+      const endOfDay = `${selectedDate}T23:59:59.999Z`;
+      query = query.gte('created_at', startOfDay).lte('created_at', endOfDay);
+    }
+
+    const { data, error } = await query;
+
     if (!error && data) {
       setOrders(data as PosOrder[]);
+    } else {
+      setOrders([]);
     }
     setLoading(false);
   };
@@ -87,7 +109,7 @@ export default function KasirCafePage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [selectedDate]); // Re-fetch otomatis saat tanggal berubah
 
   // Format Rupiah
   const formatRupiah = (val: number) => {
@@ -149,7 +171,7 @@ export default function KasirCafePage() {
     // Header Tabel Items
     y += 5;
     doc.setFont('courier', 'bold');
-    doc.text('QTY  ITEM                   TOTAL', 3, y);
+    doc.text('QTY  ITEM                  TOTAL', 3, y);
     y += 4;
     doc.setFont('courier', 'normal');
     doc.text('---------------------------------', 36, y, { align: 'center' });
@@ -303,37 +325,84 @@ export default function KasirCafePage() {
         </button>
       </div>
 
-      {/* SEARCH & FILTER BAR */}
-      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-[#141e1b] p-3 rounded-2xl border border-white/10">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Cari pesanan Asep / No. Meja..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
-          />
-        </div>
+      {/* SEARCH & FILTER BAR (TERMASUK FILTER TANGGAL) */}
+      <div className="bg-[#141e1b] p-4 rounded-2xl border border-white/10 space-y-3">
+        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+          
+          {/* 1. Search Bar */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Cari nama pemesan / no. order..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ccff00]"
+            />
+          </div>
 
-        <div className="flex gap-1.5 shrink-0">
-          {[
-            { id: 'all', label: 'Semua Status' },
-            { id: 'pending', label: 'Belum Lunas (Pending)' },
-            { id: 'paid', label: 'Lunas' },
-          ].map((st) => (
+          {/* 2. Filter Tanggal & Status */}
+          <div className="flex flex-wrap items-center gap-2">
+            
+            {/* Input Tanggal */}
+            <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1">
+              <CalendarIcon className="w-3.5 h-3.5 text-[#ccff00]" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer"
+              />
+            </div>
+
+            {/* Quick Button: Hari Ini & Semua */}
             <button
-              key={st.id}
-              onClick={() => setStatusFilter(st.id as any)}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                statusFilter === st.id
-                  ? 'bg-[#ccff00] text-zinc-950'
-                  : 'bg-white/5 text-zinc-400 hover:text-white'
+              onClick={() => setSelectedDate(getTodayString())}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
+                selectedDate === getTodayString()
+                  ? 'bg-[#ccff00]/10 border-[#ccff00] text-[#ccff00]'
+                  : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
               }`}
             >
-              {st.label}
+              Hari Ini
             </button>
-          ))}
+
+            <button
+              onClick={() => setSelectedDate('')}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
+                selectedDate === ''
+                  ? 'bg-[#ccff00]/10 border-[#ccff00] text-[#ccff00]'
+                  : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+              }`}
+            >
+              Semua Tanggal
+            </button>
+
+            <div className="h-4 w-px bg-white/10 mx-1 hidden sm:block"></div>
+
+            {/* Status Filter */}
+            <div className="flex gap-1">
+              {[
+                { id: 'all', label: 'Semua Status' },
+                { id: 'pending', label: 'Pending' },
+                { id: 'paid', label: 'Lunas' },
+              ].map((st) => (
+                <button
+                  key={st.id}
+                  onClick={() => setStatusFilter(st.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    statusFilter === st.id
+                      ? 'bg-[#ccff00] text-zinc-950'
+                      : 'bg-white/5 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
+          </div>
+
         </div>
       </div>
 
@@ -346,7 +415,9 @@ export default function KasirCafePage() {
       ) : filteredOrders.length === 0 ? (
         <div className="text-center py-16 bg-[#141e1b] rounded-2xl border border-white/10">
           <Coffee className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
-          <p className="text-xs text-zinc-400">Belum ada pesanan terdeteksi.</p>
+          <p className="text-xs text-zinc-400">
+            {selectedDate ? `Belum ada pesanan untuk tanggal ${selectedDate}` : 'Belum ada pesanan terdeteksi.'}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
